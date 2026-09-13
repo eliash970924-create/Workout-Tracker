@@ -8,7 +8,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -40,7 +39,7 @@ class DriveClient(
         val request = Request.Builder().url(url).header("Authorization", "Bearer $token").build()
         http.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IOException(describe("list", response.code, body))
+            if (!response.isSuccessful) throw failure("list", response.code, body)
             val files = JSONObject(body).optJSONArray("files")
             if (files == null || files.length() == 0) null else files.getJSONObject(0).getString("id")
         }
@@ -53,7 +52,7 @@ class DriveClient(
             .build()
         http.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IOException(describe("download", response.code, body))
+            if (!response.isSuccessful) throw failure("download", response.code, body)
             body
         }
     }
@@ -84,16 +83,25 @@ class DriveClient(
         }
         http.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw IOException(describe("upload", response.code, body))
+            if (!response.isSuccessful) throw failure("upload", response.code, body)
             JSONObject(body).optString("id").ifEmpty { fileId.orEmpty() }
         }
     }
 
-    private fun describe(op: String, code: Int, body: String): String {
-        val reason = runCatching {
-            JSONObject(body).getJSONObject("error").getString("message")
-        }.getOrNull() ?: body.take(160)
-        return "Drive $op failed (HTTP $code): $reason"
+    /**
+     * Builds an exception carrying an explanation rather than a bare status
+     * line. Google puts the useful part (which project is missing the API, for
+     * instance) in the error body, so it is parsed out here and passed on.
+     */
+    private fun failure(op: String, code: Int, body: String): DriveHttpException {
+        val error = runCatching { JSONObject(body).getJSONObject("error") }.getOrNull()
+        val detail = error?.optString("message")?.ifEmpty { null } ?: body.take(200).ifEmpty { null }
+        val reason = error?.optJSONArray("errors")
+            ?.takeIf { it.length() > 0 }
+            ?.optJSONObject(0)
+            ?.optString("reason")
+            ?.ifEmpty { null }
+        return DriveHttpException(code, SyncErrors.fromHttp(op, code, detail, reason))
     }
 
     private fun urlEncode(value: String): String =
