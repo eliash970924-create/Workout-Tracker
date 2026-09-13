@@ -64,7 +64,7 @@ if you uninstall the app or disconnect it from your Google account settings).
 ./gradlew test              # unit tests
 ```
 
-Requires JDK 21 and the Android SDK (compileSdk 36). minSdk is 26 (Android 8.0).
+Requires JDK 21 and the Android SDK (compileSdk 37). minSdk is 26 (Android 8.0).
 
 ### Toolchain
 

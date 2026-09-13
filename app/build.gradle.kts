@@ -23,7 +23,7 @@ val releaseStoreFile: String? = signingValue("storeFile", "RELEASE_STORE_FILE")
 
 android {
     namespace = "com.workouttracker"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.workouttracker"
