@@ -20,11 +20,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # No --stacktrace: on an annotation-processor failure it buries the
+      # actual "e: [ksp] ..." message under hundreds of frames.
       - name: Unit tests
-        run: ./gradlew test --stacktrace
+        run: ./gradlew testDebugUnitTest
 
       - name: Assemble debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleDebug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -32,3 +34,11 @@ jobs:
           name: workout-tracker-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/
+          if-no-files-found: ignore
