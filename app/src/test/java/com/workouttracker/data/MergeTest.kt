@@ -151,8 +151,8 @@ class MergeTest {
             exportedAt = clock,
             workouts = listOf(Workout(id = "w1", date = 20_000, name = "Remote day", updatedAt = clock)),
             sets = listOf(
-                SetEntry("s1", "w1", "Deadlift", 5, 100.0, 0, clock),
-                SetEntry("s2", "w1", "Deadlift", 5, 105.0, 1, clock),
+                SetEntry("s1", "w1", "Deadlift", 5, 100.0, 0, updatedAt = clock),
+                SetEntry("s2", "w1", "Deadlift", 5, 105.0, 1, updatedAt = clock),
             ),
         )
 
@@ -177,4 +177,57 @@ class MergeTest {
 
     private fun snapshotOf(vararg workouts: Workout) =
         Snapshot(exportedAt = clock, workouts = workouts.toList(), sets = emptyList())
+
+    @Test
+    fun `custom exercises merge by last write, like everything else`() = runTest {
+        clock = 100
+        repository.addCustomExercise("Elias Special", MuscleGroup.CORE)
+        val local = db.workoutDao().allCustomExercises().single()
+
+        val applied = repository.merge(
+            Snapshot(
+                exportedAt = clock,
+                workouts = emptyList(),
+                sets = emptyList(),
+                customExercises = listOf(
+                    local.copy(name = "Renamed remotely", updatedAt = clock + 50),
+                    CustomExercise("c2", "From another phone", MuscleGroup.CALVES.name, clock),
+                ),
+            )
+        )
+
+        assertEquals(2, applied)
+        val stored = db.workoutDao().allCustomExercises().associateBy { it.id }
+        assertEquals("Renamed remotely", stored.getValue(local.id).name)
+        assertEquals("From another phone", stored.getValue("c2").name)
+    }
+
+    @Test
+    fun `a set records the muscle group of its exercise`() = runTest {
+        val id = repository.createWorkout("Push", LocalDate.of(2026, 1, 5))
+
+        repository.addSet(id, "Barbell Bench Press")
+
+        assertEquals(MuscleGroup.CHEST.name, db.workoutDao().allSets().single().muscleGroup)
+    }
+
+    @Test
+    fun `an unknown exercise falls back to Other rather than guessing`() = runTest {
+        val id = repository.createWorkout("Push", LocalDate.of(2026, 1, 5))
+
+        repository.addSet(id, "Elias Special")
+
+        assertEquals(MuscleGroup.OTHER.name, db.workoutDao().allSets().single().muscleGroup)
+    }
+
+    @Test
+    fun `adding another set reuses the muscle group of the user's own exercise`() = runTest {
+        val id = repository.createWorkout("Core", LocalDate.of(2026, 1, 5))
+        repository.addCustomExercise("Elias Special", MuscleGroup.CORE)
+
+        // No group passed: it has to be resolved from the custom exercise list.
+        repository.addSet(id, "Elias Special")
+
+        assertEquals(MuscleGroup.CORE.name, db.workoutDao().allSets().single().muscleGroup)
+    }
 }
