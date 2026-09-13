@@ -32,6 +32,36 @@ class WorkoutRepository(
 
     fun observeExerciseNames(): Flow<List<String>> = dao.observeExerciseNames()
 
+    fun observeExerciseHistory(): Flow<List<ExerciseHistoryEntry>> = dao.observeExerciseHistory()
+
+    fun observeSetsForExercise(exercise: String): Flow<List<SetWithSession>> =
+        dao.observeSetsForExercise(exercise)
+
+    fun observeCustomExercises(): Flow<List<CustomExercise>> = dao.observeCustomExercises()
+
+    /** Adds a user-defined exercise. Returns the name as stored, trimmed. */
+    suspend fun addCustomExercise(name: String, muscleGroup: MuscleGroup): String {
+        val trimmed = name.trim()
+        dao.upsertCustomExercise(
+            CustomExercise(
+                id = UUID.randomUUID().toString(),
+                name = trimmed,
+                muscleGroup = group.name,
+                updatedAt = now(),
+            )
+        )
+        syncTrigger.onLocalChange()
+        return trimmed
+    }
+
+    suspend fun deleteCustomExercise(id: String) {
+        val existing = dao.findCustomExercise(id) ?: return
+        // Tombstoned, not removed: sets already logged against it keep their
+        // own denormalised muscle group, so history is unaffected.
+        dao.upsertCustomExercise(existing.copy(deleted = true, updatedAt = now()))
+        syncTrigger.onLocalChange()
+    }
+
     suspend fun createWorkout(name: String, date: LocalDate = LocalDate.now()): String {
         val workout = Workout(
             id = UUID.randomUUID().toString(),
@@ -65,7 +95,14 @@ class WorkoutRepository(
      * Appends a set for [exercise], defaulting reps and weight to the last set
      * logged for that exercise in this workout.
      */
-    suspend fun addSet(workoutId: String, exercise: String, reps: Int? = null, weightKg: Double? = null) {
+    suspend fun addSet(
+        workoutId: String,
+        exercise: String,
+        muscleGroup: MuscleGroup? = null,
+        reps: Int? = null,
+        weightKg: Double? = null,
+    ) {
+        val group = muscleGroup ?: resolveMuscleGroup(exercise)
         val previous = dao.lastSetOf(workoutId, exercise)
         val set = SetEntry(
             id = UUID.randomUUID().toString(),
@@ -74,10 +111,23 @@ class WorkoutRepository(
             reps = reps ?: previous?.reps ?: 8,
             weightKg = weightKg ?: previous?.weightKg ?: 0.0,
             position = dao.maxPosition(workoutId) + 1,
+            muscleGroup = group.name,
             updatedAt = now(),
         )
         dao.upsertSet(set)
         syncTrigger.onLocalChange()
+    }
+
+    /**
+     * Best guess at an exercise's muscle group from its name: the built-in
+     * catalogue first, then the user's own exercises. Used when a caller has a
+     * name but no group, such as adding another set to an existing exercise.
+     */
+    private suspend fun resolveMuscleGroup(exercise: String): MuscleGroup {
+        ExerciseCatalog.muscleGroupFor(exercise)?.let { return it }
+        val custom = dao.allCustomExercises()
+            .firstOrNull { !it.deleted && it.name.equals(exercise.trim(), ignoreCase = true) }
+        return MuscleGroup.of(custom?.muscleGroup)
     }
 
     suspend fun updateSet(set: SetEntry) {
@@ -94,7 +144,12 @@ class WorkoutRepository(
     // --- sync support ---
 
     suspend fun snapshot(): Snapshot = db.withTransaction {
-        Snapshot(exportedAt = now(), workouts = dao.allWorkouts(), sets = dao.allSets())
+        Snapshot(
+            exportedAt = now(),
+            workouts = dao.allWorkouts(),
+            sets = dao.allSets(),
+            customExercises = dao.allCustomExercises(),
+        )
     }
 
     /**
@@ -118,6 +173,13 @@ class WorkoutRepository(
             val local = dao.findSet(remote.id)
             if (local == null || local.updatedAt < remote.updatedAt) {
                 dao.upsertSet(remote)
+                applied++
+            }
+        }
+        for (remote in snapshot.customExercises) {
+            val local = dao.findCustomExercise(remote.id)
+            if (local == null || local.updatedAt < remote.updatedAt) {
+                dao.upsertCustomExercise(remote)
                 applied++
             }
         }

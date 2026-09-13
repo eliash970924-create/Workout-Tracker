@@ -21,7 +21,6 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -49,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.workouttracker.data.CustomExercise
+import com.workouttracker.data.MuscleGroup
 import com.workouttracker.data.SetEntry
 import com.workouttracker.data.Workout
 import com.workouttracker.data.WorkoutRepository
@@ -71,7 +72,7 @@ class WorkoutDetailViewModel(
     val sets: StateFlow<List<SetEntry>> = repository.observeSets(workoutId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val exerciseSuggestions: StateFlow<List<String>> = repository.observeExerciseNames()
+    val customExercises: StateFlow<List<CustomExercise>> = repository.observeCustomExercises()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun rename(name: String) = edit { it.copy(name = name) }
@@ -80,8 +81,17 @@ class WorkoutDetailViewModel(
 
     fun setDate(date: LocalDate) = edit { it.copy(date = date.toEpochDay()) }
 
-    fun addSet(exercise: String) {
-        viewModelScope.launch { repository.addSet(workoutId, exercise.trim()) }
+    /** [muscleGroup] null means "work it out from the name" (adding another set). */
+    fun addSet(exercise: String, muscleGroup: MuscleGroup? = null) {
+        viewModelScope.launch { repository.addSet(workoutId, exercise.trim(), muscleGroup) }
+    }
+
+    /** Creates the exercise, then logs a first set of it. */
+    fun createExerciseAndAddSet(name: String, muscleGroup: MuscleGroup) {
+        viewModelScope.launch {
+            val stored = repository.addCustomExercise(name, muscleGroup)
+            repository.addSet(workoutId, stored, muscleGroup)
+        }
     }
 
     fun updateSet(set: SetEntry, reps: Int = set.reps, weightKg: Double = set.weightKg) {
@@ -113,7 +123,7 @@ fun WorkoutDetailScreen(workoutId: String, onBack: () -> Unit) {
     }
     val workout by viewModel.workout.collectAsStateWithLifecycle()
     val sets by viewModel.sets.collectAsStateWithLifecycle()
-    val suggestions by viewModel.exerciseSuggestions.collectAsStateWithLifecycle()
+    val customExercises by viewModel.customExercises.collectAsStateWithLifecycle()
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showAddExercise by remember { mutableStateOf(false) }
@@ -228,11 +238,15 @@ fun WorkoutDetailScreen(workoutId: String, onBack: () -> Unit) {
     }
 
     if (showAddExercise) {
-        AddExerciseDialog(
-            suggestions = suggestions,
+        ExercisePickerDialog(
+            customExercises = customExercises,
             onDismiss = { showAddExercise = false },
-            onConfirm = { name ->
-                viewModel.addSet(name)
+            onPick = { name, group ->
+                viewModel.addSet(name, group)
+                showAddExercise = false
+            },
+            onCreate = { name, group ->
+                viewModel.createExerciseAndAddSet(name, group)
                 showAddExercise = false
             },
         )
@@ -351,53 +365,5 @@ private fun NumberField(
             imeAction = ImeAction.Next,
         ),
         modifier = modifier,
-    )
-}
-
-@Composable
-private fun AddExerciseDialog(
-    suggestions: List<String>,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-) {
-    var name by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add exercise") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Exercise") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (suggestions.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text("Recent", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.height(4.dp))
-                    // Recently used names, so repeat exercises are one tap.
-                    LazyColumn(
-                        modifier = Modifier.height(160.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        items(suggestions, key = { it }) { suggestion ->
-                            AssistChip(
-                                onClick = { onConfirm(suggestion) },
-                                label = { Text(suggestion) },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(name) },
-                enabled = name.isNotBlank(),
-            ) { Text("Add") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

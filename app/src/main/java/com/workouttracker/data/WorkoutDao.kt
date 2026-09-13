@@ -68,4 +68,51 @@ interface WorkoutDao {
 
     @Query("SELECT * FROM exercise_sets")
     suspend fun allSets(): List<SetEntry>
+
+    // --- history ---
+
+    /** Every exercise ever logged, most recently performed first. */
+    @Query(
+        """
+        SELECT s.exercise AS exercise,
+               s.muscleGroup AS muscleGroup,
+               COUNT(s.id) AS setCount,
+               MAX(w.date) AS lastPerformed,
+               MAX(s.weightKg) AS bestWeight
+        FROM exercise_sets s
+        JOIN workouts w ON w.id = s.workoutId
+        WHERE s.deleted = 0 AND w.deleted = 0
+        GROUP BY s.exercise
+        ORDER BY lastPerformed DESC, s.exercise ASC
+        """
+    )
+    fun observeExerciseHistory(): Flow<List<ExerciseHistoryEntry>>
+
+    /** Every set logged for one exercise, newest session first. */
+    @Query(
+        """
+        SELECT s.id AS id, s.exercise AS exercise, s.reps AS reps,
+               s.weightKg AS weightKg, s.position AS position,
+               w.name AS workoutName, w.date AS workoutDate
+        FROM exercise_sets s
+        JOIN workouts w ON w.id = s.workoutId
+        WHERE s.deleted = 0 AND w.deleted = 0 AND s.exercise = :exercise
+        ORDER BY w.date DESC, s.position ASC
+        """
+    )
+    fun observeSetsForExercise(exercise: String): Flow<List<SetWithSession>>
+
+    // --- custom exercises ---
+
+    @Query("SELECT * FROM custom_exercises WHERE deleted = 0 ORDER BY name ASC")
+    fun observeCustomExercises(): Flow<List<CustomExercise>>
+
+    @Query("SELECT * FROM custom_exercises WHERE id = :id")
+    suspend fun findCustomExercise(id: String): CustomExercise?
+
+    @Query("SELECT * FROM custom_exercises")
+    suspend fun allCustomExercises(): List<CustomExercise>
+
+    @Upsert
+    suspend fun upsertCustomExercise(exercise: CustomExercise)
 }

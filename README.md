@@ -6,11 +6,17 @@ automatic background sync to a private folder in your Google Drive.
 
 ## Features
 
+- **Three tabs** — Workouts, History, Backup & sync.
 - **Log sessions** — name, date, free-text notes.
 - **Exercises and sets** — reps and weight per set, grouped by exercise. Adding
   a set reuses the last reps/weight for that exercise, so logging 5×5 is four
   taps after the first set.
-- **Exercise suggestions** — recently used exercise names are one tap away.
+- **Built-in exercise library** — 92 common lifts across 12 muscle groups,
+  searchable and filterable. Anything missing can be added as a custom exercise
+  with its own muscle group; custom exercises sync, the built-in list does not
+  (it ships with the app, so syncing it would be pure duplication).
+- **History per exercise** — every exercise you have trained, filterable by
+  muscle group. Open one for its sessions, best set and total volume.
 - **Session list** — every workout with its set count and total volume
   (reps × weight), newest first.
 - **Auto sync to Google Drive** — see below.
@@ -28,6 +34,11 @@ backup:
 - Deletes are tombstones (`deleted = true`) rather than physical removals,
   otherwise a delete on one phone would be undone by the next sync from
   another.
+
+The snapshot is versioned. Version 1 (workouts and sets) still decodes, so a
+backup written by an older install restores correctly; an install still on
+version 1 will refuse a version 2 snapshot rather than silently dropping the
+fields it cannot read, so update every device you sync.
 
 One sync round downloads the snapshot from Drive, merges it into the local
 database, then uploads the merged result. Running it on two devices in any
@@ -162,7 +173,8 @@ it as a second Android OAuth client so Drive sync works in release builds too
 app/src/main/java/com/workouttracker/
 ├── WorkoutApp.kt          Application; holds the singletons
 ├── MainActivity.kt
-├── data/                  Room entities, DAO, repository, snapshot model
+├── data/                  Room entities, DAO, repository, snapshot model,
+│                          migrations, muscle groups, exercise catalogue
 ├── sync/                  Drive auth + REST client, merge driver, WorkManager
 └── ui/                    Compose screens, navigation, theme
 ```
