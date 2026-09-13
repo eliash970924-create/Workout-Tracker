@@ -64,7 +64,31 @@ if you uninstall the app or disconnect it from your Google account settings).
 ./gradlew test              # unit tests
 ```
 
-Requires JDK 17 and the Android SDK (compileSdk 35). minSdk is 26 (Android 8.0).
+Requires JDK 21 and the Android SDK (compileSdk 36). minSdk is 26 (Android 8.0).
+
+### Toolchain
+
+These versions are a matched set. AGP 9 compiles Kotlin itself (built-in
+Kotlin), so there is no `org.jetbrains.kotlin.android` plugin; the Compose and
+serialization compiler plugins are still applied separately and must stay on
+the same Kotlin version, and KSP's version tracks Kotlin's too.
+
+| | Version |
+| --- | --- |
+| Android Gradle Plugin | 9.4.0 |
+| Gradle | 9.6.0 |
+| Kotlin (compiler plugins) | 2.3.21 |
+| KSP | 2.3.12 |
+| JDK | 21 |
+
+Do not accept Android Studio's AGP Upgrade Assistant prompt. It bumps AGP,
+Gradle, Kotlin and KSP without moving Room or the Compose BOM with them, and
+the resulting skew fails in KSP with `unexpected jvm signature V`. Upgrade the
+whole set together in `gradle/libs.versions.toml` instead, and let CI build it.
+
+In Android Studio, set **Gradle JDK** to a JDK 21 and **Use Gradle from** to
+`'gradle-wrapper.properties' file`, so the IDE builds with the same versions
+as CI.
 
 ## Enabling Drive sync
 
