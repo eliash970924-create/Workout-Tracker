@@ -38,7 +38,7 @@ class DriveClient(
             "&q=" + urlEncode("name = '$BACKUP_FILE_NAME' and trashed = false")
         val request = Request.Builder().url(url).header("Authorization", "Bearer $token").build()
         http.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string()
             if (!response.isSuccessful) throw failure("list", response.code, body)
             val files = JSONObject(body).optJSONArray("files")
             if (files == null || files.length() == 0) null else files.getJSONObject(0).getString("id")
@@ -51,7 +51,7 @@ class DriveClient(
             .header("Authorization", "Bearer $token")
             .build()
         http.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string()
             if (!response.isSuccessful) throw failure("download", response.code, body)
             body
         }
@@ -82,7 +82,7 @@ class DriveClient(
                 .build()
         }
         http.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string()
             if (!response.isSuccessful) throw failure("upload", response.code, body)
             JSONObject(body).optString("id").ifEmpty { fileId.orEmpty() }
         }

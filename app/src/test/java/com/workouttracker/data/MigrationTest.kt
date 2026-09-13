@@ -106,7 +106,7 @@ class MigrationTest {
                     version1Schema.forEach(db::execSQL)
                 }
 
-                override fun onUpgrade(db: SupportSQLiteDatabase, old: Int, new: Int) = Unit
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
             })
             .build()
         val helper = FrameworkSQLiteOpenHelperFactory().create(configuration)

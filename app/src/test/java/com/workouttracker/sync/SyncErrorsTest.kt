@@ -17,7 +17,7 @@ class SyncErrorsTest {
         val error = SyncErrors.fromStatusCode(10) // DEVELOPER_ERROR
 
         assertTrue(error.hint!!.contains("signingReport"))
-        assertTrue(error.hint!!.contains("Waiting will not fix this"))
+        assertTrue(error.hint.contains("Waiting will not fix this"))
     }
 
     @Test
