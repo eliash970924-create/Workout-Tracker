@@ -110,8 +110,7 @@ Two traps:
   Play re-signs your upload, so registering the upload key means sync works for
   you and fails for everyone who installs from Play.
 
-There is currently no release `signingConfig`, so `assembleRelease` produces an
-unsigned APK. Add one before expecting a release build to install or sync.
+See [Release builds](#release-builds) for configuring the release key.
 
 ### When it does not work
 
@@ -131,6 +130,31 @@ Only the last row is worth waiting out. Note that Google shows *"it may take 5
 minutes to a few hours for settings to take effect"* when you create OAuth
 credentials — that is real, but it only explains a newly created client, never
 a mismatched SHA-1.
+
+## Release builds
+
+`./gradlew assembleRelease` works out of the box but produces
+`app-release-unsigned.apk`, which no device will install. To sign it:
+
+1. Create a keystore, once, and back it up. If you lose it you can never update
+   an app published under that key:
+   ```bash
+   keytool -genkeypair -v -keystore release.jks -alias workout-tracker \
+     -keyalg RSA -keysize 2048 -validity 10000
+   ```
+2. Copy `keystore.properties.example` to `keystore.properties` and fill it in.
+   That file, and `*.jks` / `*.keystore`, are gitignored — nothing secret is
+   ever committed.
+3. `./gradlew assembleRelease` now emits a signed `app-release.apk`.
+
+CI has no keystore, so it keeps building the unsigned variant; that is
+deliberate, and it still catches R8/shrinker breakage. To sign elsewhere, set
+`RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS` and
+`RELEASE_KEY_PASSWORD` instead of using the properties file.
+
+Once signed, `./gradlew :app:signingReport` prints the release SHA-1 — register
+it as a second Android OAuth client so Drive sync works in release builds too
+(see [Which signing key](#which-signing-key)).
 
 ## Layout
 
