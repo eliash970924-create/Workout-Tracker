@@ -81,7 +81,7 @@ class SettingsViewModel(
                     syncNow()
                 }
                 is DriveAuth.Result.ConsentRequired -> onConsentRequired(result.pendingIntent)
-                is DriveAuth.Result.Failed -> prefs.recordError(result.message)
+                is DriveAuth.Result.Failed -> prefs.recordError(result.error)
             }
         }
     }
@@ -91,7 +91,7 @@ class SettingsViewModel(
             prefs.setConnected(true)
             syncNow()
         } else {
-            prefs.recordError("Google Drive access was not granted")
+            prefs.recordError(DriveAuth.describeConsentFailure(context, data))
         }
     }
 
@@ -213,12 +213,22 @@ fun SettingsScreen(onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     state.lastError?.let { error ->
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(8.dp))
                         Text(
-                            error,
-                            style = MaterialTheme.typography.bodySmall,
+                            error.message,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error,
                         )
+                        // The hint is what makes a setup mistake fixable without
+                        // going and looking up what "code 10" means.
+                        error.hint?.let { hint ->
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                hint,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(

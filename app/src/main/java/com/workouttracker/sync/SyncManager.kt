@@ -6,7 +6,6 @@ import com.workouttracker.data.WorkoutRepository
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
-import java.io.IOException
 
 /**
  * One round of two-way sync with Google Drive:
@@ -36,7 +35,7 @@ class SyncManager(
         /** The user has never granted Drive access, or it was revoked. */
         data object NotConnected : Outcome
 
-        data class Failed(val message: String, val retryable: Boolean) : Outcome
+        data class Failed(val error: SyncError, val retryable: Boolean) : Outcome
     }
 
     suspend fun sync(): Outcome = mutex.withLock {
@@ -50,7 +49,7 @@ class SyncManager(
                     prefs.clearConnection()
                     return@withLock Outcome.NotConnected
                 }
-                is DriveAuth.Result.Failed -> return@withLock fail(auth.message, retryable = true)
+                is DriveAuth.Result.Failed -> return@withLock fail(auth.error, retryable = true)
             }
             prefs.setConnected(true)
 
@@ -58,12 +57,25 @@ class SyncManager(
             var merged = 0
             if (pulled != null) {
                 val remote = runCatching { json.decodeFromString(Snapshot.serializer(), pulled.body) }.getOrNull()
-                    ?: return@withLock fail("Backup on Drive is unreadable", retryable = false)
+                    ?: return@withLock fail(
+                        SyncError(
+                            "The backup on Drive is unreadable",
+                            "It may have been written by a different app. Sync will keep failing " +
+                                "until it is removed.",
+                        ),
+                        retryable = false,
+                    )
                 if (remote.version > Snapshot.CURRENT_VERSION) {
                     // Written by a newer install. Merging would silently drop
                     // whatever fields this version cannot parse, and uploading
                     // would overwrite them, so stop instead.
-                    return@withLock fail("Backup was written by a newer version of the app", retryable = false)
+                    return@withLock fail(
+                        SyncError(
+                            "The backup was written by a newer version of the app",
+                            "Update this device to sync again. Nothing has been overwritten.",
+                        ),
+                        retryable = false,
+                    )
                 }
                 merged = repository.merge(remote)
             }
@@ -75,9 +87,10 @@ class SyncManager(
             prefs.recordSuccess(now())
             Outcome.Success(merged)
         } catch (e: Exception) {
-            // Network blips and expired tokens both land here; both are worth
-            // another attempt on the next run.
-            fail(e.message ?: e.javaClass.simpleName, retryable = true)
+            // Network blips and expired tokens land here and are worth another
+            // attempt; a missing backup file is not, since pullRemote already
+            // re-looked it up and found nothing.
+            fail(SyncErrors.fromException(e), retryable = e !is DriveHttpException || e.code != 404)
         } finally {
             prefs.setSyncing(false)
         }
@@ -91,9 +104,11 @@ class SyncManager(
         if (cachedId != null) {
             try {
                 return Pulled(cachedId, drive.download(token, cachedId))
-            } catch (e: IOException) {
+            } catch (e: DriveHttpException) {
                 // The cached id can outlive the file (user cleared app data on
-                // Drive, restored a different account). Fall back to a lookup.
+                // Drive, restored a different account). Only a missing file is
+                // worth a second look; anything else is a real error.
+                if (e.code != 404) throw e
                 prefs.backupFileId = null
             }
         }
@@ -102,8 +117,8 @@ class SyncManager(
         return Pulled(foundId, drive.download(token, foundId))
     }
 
-    private fun fail(message: String, retryable: Boolean): Outcome.Failed {
-        prefs.recordError(message)
-        return Outcome.Failed(message, retryable)
+    private fun fail(error: SyncError, retryable: Boolean): Outcome.Failed {
+        prefs.recordError(error)
+        return Outcome.Failed(error, retryable)
     }
 }

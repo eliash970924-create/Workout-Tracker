@@ -23,7 +23,7 @@ data class SyncState(
     /** True once the user has granted Drive access at least once. */
     val connected: Boolean = false,
     val lastSyncAt: Long = 0L,
-    val lastError: String? = null,
+    val lastError: SyncError? = null,
     val syncing: Boolean = false,
 )
 
@@ -41,7 +41,8 @@ class SyncPrefs(context: Context) {
             interval = SyncInterval.fromHours(prefs.getLong(KEY_INTERVAL, 6)),
             connected = prefs.getBoolean(KEY_CONNECTED, false),
             lastSyncAt = prefs.getLong(KEY_LAST_SYNC, 0L),
-            lastError = prefs.getString(KEY_LAST_ERROR, null),
+            lastError = prefs.getString(KEY_LAST_ERROR, null)
+                ?.let { SyncError(it, prefs.getString(KEY_LAST_ERROR_HINT, null)) },
         )
     )
     val state: StateFlow<SyncState> = _state.asStateFlow()
@@ -71,13 +72,17 @@ class SyncPrefs(context: Context) {
     }
 
     fun recordSuccess(at: Long) {
-        prefs.edit().putLong(KEY_LAST_SYNC, at).remove(KEY_LAST_ERROR).apply()
+        prefs.edit().putLong(KEY_LAST_SYNC, at)
+            .remove(KEY_LAST_ERROR).remove(KEY_LAST_ERROR_HINT).apply()
         _state.value = _state.value.copy(lastSyncAt = at, lastError = null, syncing = false)
     }
 
-    fun recordError(message: String) {
-        prefs.edit().putString(KEY_LAST_ERROR, message).apply()
-        _state.value = _state.value.copy(lastError = message, syncing = false)
+    fun recordError(error: SyncError) {
+        prefs.edit()
+            .putString(KEY_LAST_ERROR, error.message)
+            .putString(KEY_LAST_ERROR_HINT, error.hint)
+            .apply()
+        _state.value = _state.value.copy(lastError = error, syncing = false)
     }
 
     fun clearConnection() {
@@ -91,6 +96,7 @@ class SyncPrefs(context: Context) {
         const val KEY_CONNECTED = "connected"
         const val KEY_LAST_SYNC = "last_sync_at"
         const val KEY_LAST_ERROR = "last_error"
+        const val KEY_LAST_ERROR_HINT = "last_error_hint"
         const val KEY_FILE_ID = "backup_file_id"
     }
 }
