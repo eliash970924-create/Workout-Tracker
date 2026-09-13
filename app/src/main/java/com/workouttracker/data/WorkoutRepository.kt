@@ -46,7 +46,7 @@ class WorkoutRepository(
             CustomExercise(
                 id = UUID.randomUUID().toString(),
                 name = trimmed,
-                muscleGroup = group.name,
+                muscleGroup = muscleGroup.name,
                 updatedAt = now(),
             )
         )

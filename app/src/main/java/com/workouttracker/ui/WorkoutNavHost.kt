@@ -3,8 +3,8 @@ package com.workouttracker.ui
 import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.List
-import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.FitnessCenter
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -41,8 +41,8 @@ object Routes {
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
-    Tab(Routes.WORKOUTS, "Workouts", Icons.AutoMirrored.Outlined.List),
-    Tab(Routes.HISTORY, "History", Icons.Outlined.DateRange),
+    Tab(Routes.WORKOUTS, "Workouts", Icons.Outlined.FitnessCenter),
+    Tab(Routes.HISTORY, "History", Icons.Outlined.History),
     Tab(Routes.SETTINGS, "Settings", Icons.Outlined.Settings),
 )
 
