@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 
 plugins {
     alias(libs.plugins.android.application)
@@ -68,6 +69,18 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+
+        // These tests only ever run on CI, where the HTML report is an
+        // artifact nobody reads. Print the failure and its cause to the
+        // console instead, so a stack trace is in the build log.
+        unitTests.all { test ->
+            test.testLogging {
+                events("failed")
+                exceptionFormat = TestExceptionFormat.FULL
+                showCauses = true
+                showStackTraces = true
+            }
+        }
     }
 
     packaging {
