@@ -28,6 +28,11 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew assembleDebug
 
+      # The release variant's KSP run failed on the first CI run; keep it in
+      # the build so that failure cannot hide behind a green debug build.
+      - name: Assemble release APK
+        run: ./gradlew assembleRelease
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

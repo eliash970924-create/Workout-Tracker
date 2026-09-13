@@ -1,5 +1,6 @@
 package com.workouttracker.data
 
+import android.app.Application
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
@@ -13,10 +14,16 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.time.LocalDate
 
 /** Covers the last-write-wins rules the Drive sync depends on. */
 @RunWith(RobolectricTestRunner::class)
+// Robolectric would otherwise instantiate the real WorkoutApp, whose onCreate
+// schedules WorkManager work. WorkManager's androidx.startup initializer does
+// not run here, so getInstance() throws. These tests only need a Context for
+// the in-memory database.
+@Config(application = Application::class)
 class MergeTest {
 
     private lateinit var db: AppDatabase
