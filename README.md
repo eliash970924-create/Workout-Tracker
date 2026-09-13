@@ -57,28 +57,80 @@ Requires JDK 17 and the Android SDK (compileSdk 35). minSdk is 26 (Android 8.0).
 
 ## Enabling Drive sync
 
-The app builds and runs without any of this — it just works offline, and
-Settings shows "Connect Google Drive" as unavailable until you do the following
-once:
+The app builds and runs without any of this — it works offline, and Settings
+shows an error when you try to connect until you do the following once:
 
 1. In the [Google Cloud Console](https://console.cloud.google.com/), create a
-   project and enable the **Google Drive API**.
+   project and enable the **Google Drive API**. Note which project you used —
+   the API must be enabled in the *same* project that holds the OAuth client in
+   step 3.
 2. Configure the OAuth consent screen. While it is in *Testing*, add your own
-   Google account under **Test users**.
+   Google account under **Test users**, or Google will refuse the sign-in.
 3. Create an **OAuth client ID** of type **Android** with:
-   - package name `com.workouttracker`
-   - the SHA-1 of the signing key you build with. For debug builds:
+   - package name `com.workouttracker` (debug and release share it — there is
+     no `applicationIdSuffix`)
+   - the SHA-1 of the key that signs the build you are installing:
+     ```bash
+     ./gradlew :app:signingReport      # SHA1 per variant
+     ```
+     or straight from the debug keystore:
      ```bash
      keytool -list -v -keystore ~/.android/debug.keystore \
        -alias androiddebugkey -storepass android -keypass android | grep SHA1
      ```
-4. Rebuild and install. Settings → **Connect Google Drive** now shows Google's
-   consent screen.
+4. Install a locally built APK and open Settings → **Connect Google Drive**.
 
-No file needs to be checked into the repo — the Android OAuth client is matched
-by package name and signing certificate, so there are no secrets to manage. If
-you change the `applicationId` or sign with a release key, add a second OAuth
-client for that combination.
+No file needs to be checked into the repo: an Android OAuth client is matched
+server-side on package name and signing certificate, so there are no secrets to
+manage and no client id to paste into the app. Changing the client in Google
+Cloud therefore needs no rebuild — just retry the connection.
+
+You can register several Android OAuth clients in one project, one per SHA-1,
+so add debug now and release later rather than swapping them.
+
+### Which signing key
+
+This is the setting that most often goes wrong, because an app can be signed by
+three different keys depending on how it reached the device:
+
+| Build | Key | Where its SHA-1 comes from |
+| --- | --- | --- |
+| Local debug | `~/.android/debug.keystore` | `./gradlew :app:signingReport` |
+| Local release | your own keystore | `signingReport`, once a `signingConfig` exists |
+| Installed from Google Play | Play's app signing key | Play Console → Setup → App integrity |
+
+Two traps:
+
+- **The debug APK built by CI is useless for Drive.** Gradle generates
+  `~/.android/debug.keystore` on first use, and the CI runner is ephemeral, so
+  that APK is signed with a throwaway key that differs on every run. Its SHA-1
+  can never match what you registered. Use it to try the app offline; build
+  locally to test sync.
+- **With Play App Signing, register the app signing key, not your upload key.**
+  Play re-signs your upload, so registering the upload key means sync works for
+  you and fails for everyone who installs from Play.
+
+There is currently no release `signingConfig`, so `assembleRelease` produces an
+unsigned APK. Add one before expecting a release build to install or sync.
+
+### When it does not work
+
+Settings → **Status** names the cause rather than a status code, which tells you
+whether waiting will help:
+
+| Status message | Cause |
+| --- | --- |
+| This build isn't registered with Google | SHA-1 or package name mismatch. Permanent |
+| The Drive API isn't enabled for your Google Cloud project | Not enabled, or enabled in a different project — the message quotes Google's text, which names the project |
+| Google refused the sign-in | Consent screen is in Testing and this account is not a test user |
+| This app wasn't granted Drive access | The Drive scope was not accepted; reconnect |
+| Google Play services isn't available on this device | Play services missing, disabled or outdated |
+| Couldn't reach Google / unavailable right now | Transient; the next sync retries on its own |
+
+Only the last row is worth waiting out. Note that Google shows *"it may take 5
+minutes to a few hours for settings to take effect"* when you create OAuth
+credentials — that is real, but it only explains a newly created client, never
+a mismatched SHA-1.
 
 ## Layout
 
