@@ -74,6 +74,13 @@ android {
         // artifact nobody reads. Print the failure and its cause to the
         // console instead, so a stack trace is in the build log.
         unitTests.all { test ->
+            // Robolectric sets up an SDK 36 environment, whose
+            // ApplicationSharedMemory.create sends its FileDescriptorInterceptor
+            // into jdk.internal.access.SharedSecrets. The module system refuses
+            // that by default and every Robolectric test then dies in setup,
+            // before reaching a single assertion.
+            test.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
+
             test.testLogging {
                 events("failed")
                 exceptionFormat = TestExceptionFormat.FULL
