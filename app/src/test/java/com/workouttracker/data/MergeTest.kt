@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -200,6 +201,76 @@ class MergeTest {
         val stored = db.workoutDao().allCustomExercises().associateBy { it.id }
         assertEquals("Renamed remotely", stored.getValue(local.id).name)
         assertEquals("From another phone", stored.getValue("c2").name)
+    }
+
+    @Test
+    fun `sets from a pre-completion snapshot arrive ticked off`() = runTest {
+        val id = repository.createWorkout("Push", LocalDate.of(2026, 1, 5))
+
+        repository.merge(
+            Snapshot(
+                version = 2,
+                exportedAt = clock,
+                workouts = emptyList(),
+                sets = listOf(
+                    SetEntry(
+                        id = "s1",
+                        workoutId = id,
+                        exercise = "Barbell Bench Press",
+                        reps = 5,
+                        weightKg = 80.0,
+                        position = 0,
+                        updatedAt = clock + 500,
+                    )
+                ),
+            )
+        )
+
+        // Version 2 had no completion flag, and everything in it was logged
+        // after being performed. Taking the field default would un-tick it.
+        assertTrue(db.workoutDao().allSets().single().completed)
+    }
+
+    @Test
+    fun `a current snapshot's completion flag is taken as written`() = runTest {
+        val id = repository.createWorkout("Push", LocalDate.of(2026, 1, 5))
+
+        repository.merge(
+            Snapshot(
+                exportedAt = clock,
+                workouts = emptyList(),
+                sets = listOf(
+                    SetEntry(
+                        id = "s1",
+                        workoutId = id,
+                        exercise = "Barbell Bench Press",
+                        reps = 5,
+                        weightKg = 80.0,
+                        position = 0,
+                        completed = false,
+                        updatedAt = clock + 500,
+                    )
+                ),
+            )
+        )
+
+        assertFalse(db.workoutDao().allSets().single().completed)
+    }
+
+    @Test
+    fun `ticking a set off is a change the sync will carry`() = runTest {
+        val id = repository.createWorkout("Push", LocalDate.of(2026, 1, 5))
+        repository.addSet(id, "Barbell Bench Press")
+        val set = db.workoutDao().allSets().single()
+        assertFalse(set.completed)
+
+        clock += 100
+        repository.setCompleted(set.id, true)
+
+        val updated = db.workoutDao().allSets().single()
+        assertTrue(updated.completed)
+        // A newer updatedAt is what makes last-write-wins carry it to Drive.
+        assertTrue(updated.updatedAt > set.updatedAt)
     }
 
     @Test

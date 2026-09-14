@@ -135,6 +135,14 @@ class WorkoutRepository(
         syncTrigger.onLocalChange()
     }
 
+    /** Ticks a set off, or un-ticks it. No write when nothing changes. */
+    suspend fun setCompleted(id: String, completed: Boolean) {
+        val set = dao.findSet(id) ?: return
+        if (set.completed == completed) return
+        dao.upsertSet(set.copy(completed = completed, updatedAt = now()))
+        syncTrigger.onLocalChange()
+    }
+
     suspend fun deleteSet(id: String) {
         val set = dao.findSet(id) ?: return
         dao.upsertSet(set.copy(deleted = true, updatedAt = now()))
@@ -166,7 +174,13 @@ class WorkoutRepository(
                 applied++
             }
         }
-        for (remote in snapshot.sets) {
+        // A snapshot written before sets could be ticked off carries no flag,
+        // and everything in it was logged after being performed. Taking the
+        // field default instead would silently un-tick those sets here.
+        val remoteSets =
+            if (snapshot.version < 3) snapshot.sets.map { it.copy(completed = true) }
+            else snapshot.sets
+        for (remote in remoteSets) {
             // Skip orphans: a set whose workout exists neither locally nor in
             // the snapshot would violate the foreign key.
             if (dao.findWorkout(remote.workoutId) == null) continue

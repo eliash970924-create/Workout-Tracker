@@ -56,7 +56,7 @@ class RestTimer(
 
     fun start(seconds: Int) {
         countdown?.cancel()
-        val total = seconds.coerceIn(MIN_SECONDS, MAX_SECONDS)
+        val total = seconds.coerceIn(MIN_REST_SECONDS, MAX_REST_SECONDS)
         _remaining.value = total
         countdown = scope.launch {
             val endsAt = SystemClock.elapsedRealtime() + total * 1000L
@@ -134,7 +134,5 @@ class RestTimer(
         const val CHANNEL_ID = "rest_timer"
         const val NOTIFICATION_ID = 1
         const val TICK_MILLIS = 200L
-        const val MIN_SECONDS = 5
-        const val MAX_SECONDS = 30 * 60
     }
 }

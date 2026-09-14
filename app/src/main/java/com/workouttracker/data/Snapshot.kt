@@ -19,7 +19,8 @@ data class Snapshot(
         /**
          * 1: workouts and sets.
          * 2: sets carry a muscle group, and custom exercises are included.
+         * 3: sets can be ticked off as completed.
          */
-        const val CURRENT_VERSION = 2
+        const val CURRENT_VERSION = 3
     }
 }

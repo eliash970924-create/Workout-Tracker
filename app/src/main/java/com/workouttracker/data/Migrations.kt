@@ -33,3 +33,18 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         }
     }
 }
+
+/**
+ * Adds the per-set completion tick.
+ *
+ * The column has to be declared exactly as the entity does -- `DEFAULT 0` --
+ * or Room rejects the migrated schema on open. Existing rows are then filled
+ * in separately: a set logged before this version was written down after being
+ * performed, so it reads as done rather than as an unfinished plan.
+ */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `exercise_sets` ADD COLUMN `completed` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE exercise_sets SET completed = 1")
+    }
+}

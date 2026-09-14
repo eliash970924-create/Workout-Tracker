@@ -2,6 +2,7 @@ package com.workouttracker.data
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,10 +38,13 @@ class SnapshotCompatibilityTest {
         // No muscle group was recorded back then.
         assertEquals(MuscleGroup.OTHER.name, snapshot.sets.single().muscleGroup)
         assertTrue(snapshot.customExercises.isEmpty())
+        // The field default is false; merge is what decides an old snapshot's
+        // sets were done, because only merge knows the snapshot's version.
+        assertFalse(snapshot.sets.single().completed)
     }
 
     @Test
-    fun `a version 2 snapshot round-trips`() {
+    fun `a snapshot of the current version round-trips`() {
         val original = Snapshot(
             exportedAt = 1,
             workouts = listOf(Workout("w1", 20000, "Push", updatedAt = 1)),

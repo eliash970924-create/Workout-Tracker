@@ -10,6 +10,7 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -17,7 +18,7 @@ import org.robolectric.annotation.Config
 
 /**
  * The database on a phone is the only copy of the user's log until it reaches
- * Drive, so the 1 -> 2 migration has to preserve it rather than start over.
+ * Drive, so the migrations have to preserve it rather than start over.
  *
  * A version 1 database is built here from the DDL Room generated for it, rather
  * than via MigrationTestHelper, because no version 1 schema JSON was ever
@@ -47,7 +48,7 @@ class MigrationTest {
     )
 
     @Test
-    fun `sets logged before muscle groups survive and are classified`() = runTest {
+    fun `sets logged before muscle groups survive, are classified, and read as done`() = runTest {
         val name = "migration-test.db"
         context.deleteDatabase(name)
         createVersion1Database(name) { db ->
@@ -69,9 +70,10 @@ class MigrationTest {
             )
         }
 
-        // Opening with Room runs MIGRATION_1_2 and then validates the schema.
+        // Opening with Room runs both migrations in turn, then validates the
+        // schema against the entities.
         val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
         try {
             val sets = db.workoutDao().allSets().associateBy { it.id }
@@ -84,6 +86,10 @@ class MigrationTest {
             // The training data itself is untouched.
             assertEquals(80.0, sets.getValue("s1").weightKg, 0.001)
             assertEquals(5, sets.getValue("s1").reps)
+            // Sets logged before the tick existed were written down after being
+            // performed, so they read as done rather than as an unfinished plan.
+            assertTrue(sets.getValue("s1").completed)
+            assertTrue(sets.getValue("s2").completed)
 
             val summaries = db.workoutDao().observeSummaries().first()
             assertEquals(1, summaries.size)

@@ -22,9 +22,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,18 +35,26 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.workouttracker.rest.MAX_REST_SECONDS
+import com.workouttracker.rest.MIN_REST_SECONDS
 import com.workouttracker.rest.REST_PRESETS
 import com.workouttracker.rest.RestPrefs
 import com.workouttracker.rest.RestSettings
@@ -118,6 +128,7 @@ fun SettingsScreen() {
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val rest by viewModel.rest.collectAsStateWithLifecycle()
+    var showCustomRest by remember { mutableStateOf(false) }
 
     val consentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -160,6 +171,7 @@ fun SettingsScreen() {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        Spacer(Modifier.width(16.dp))
                         Switch(
                             checked = rest.enabled,
                             onCheckedChange = { enabled ->
@@ -180,6 +192,18 @@ fun SettingsScreen() {
                                     label = { Text(formatCountdown(seconds)) },
                                 )
                             }
+                            // Shows the chosen length once it is not a preset,
+                            // so the chip row always says what is set.
+                            val custom = rest.seconds !in REST_PRESETS
+                            FilterChip(
+                                selected = custom,
+                                onClick = { showCustomRest = true },
+                                label = {
+                                    Text(
+                                        if (custom) formatCountdown(rest.seconds) else "Custom…"
+                                    )
+                                },
+                            )
                         }
                     }
                 }
@@ -235,6 +259,7 @@ fun SettingsScreen() {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        Spacer(Modifier.width(16.dp))
                         Switch(
                             checked = state.autoSyncEnabled,
                             onCheckedChange = viewModel::setAutoSync,
@@ -298,4 +323,80 @@ fun SettingsScreen() {
             }
         }
     }
+
+    if (showCustomRest) {
+        RestLengthDialog(
+            initialSeconds = rest.seconds,
+            onDismiss = { showCustomRest = false },
+            onConfirm = { seconds ->
+                viewModel.setRestSeconds(seconds)
+                showCustomRest = false
+            },
+        )
+    }
+}
+
+/** Types a rest length in minutes and seconds, for anything the chips do not cover. */
+@Composable
+private fun RestLengthDialog(
+    initialSeconds: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit,
+) {
+    var minutes by remember { mutableStateOf((initialSeconds / 60).toString()) }
+    var seconds by remember { mutableStateOf((initialSeconds % 60).toString()) }
+    val total = (minutes.toIntOrNull() ?: 0) * 60 + (seconds.toIntOrNull() ?: 0)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rest length") },
+        text = {
+            Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NumberBox(
+                        value = minutes,
+                        label = "min",
+                        onChange = { minutes = it },
+                        modifier = Modifier.weight(1f),
+                    )
+                    NumberBox(
+                        value = seconds,
+                        label = "sec",
+                        onChange = { seconds = it },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Anything from ${formatCountdown(MIN_REST_SECONDS)} to " +
+                        "${formatCountdown(MAX_REST_SECONDS)}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(total) }, enabled = total >= MIN_REST_SECONDS) {
+                Text("Set")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun NumberBox(
+    value: String,
+    label: String,
+    onChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { raw -> onChange(raw.filter(Char::isDigit).take(2)) },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier,
+    )
 }

@@ -30,9 +30,13 @@ object Routes {
     const val SETTINGS = "settings"
 
     const val WORKOUT_DETAIL = "workout/{workoutId}"
+    const val SESSION_EXERCISE = "workout/{workoutId}/exercise/{exercise}"
     const val EXERCISE_HISTORY = "history/{exercise}"
 
     fun workout(id: String) = "workout/$id"
+
+    fun sessionExercise(workoutId: String, exercise: String) =
+        "workout/$workoutId/exercise/${Uri.encode(exercise)}"
 
     /** Exercise names contain spaces and punctuation, so they must be encoded. */
     fun exerciseHistory(exercise: String) = "history/${Uri.encode(exercise)}"
@@ -93,9 +97,38 @@ fun WorkoutNavHost() {
                 route = Routes.WORKOUT_DETAIL,
                 arguments = listOf(navArgument("workoutId") { type = NavType.StringType }),
             ) { entry ->
+                val workoutId = entry.arguments?.getString("workoutId").orEmpty()
                 WorkoutDetailScreen(
-                    workoutId = entry.arguments?.getString("workoutId").orEmpty(),
+                    workoutId = workoutId,
                     onBack = { navController.popBackStack() },
+                    onOpenExercise = { exercise ->
+                        navController.navigate(Routes.sessionExercise(workoutId, exercise))
+                    },
+                )
+            }
+            composable(
+                route = Routes.SESSION_EXERCISE,
+                arguments = listOf(
+                    navArgument("workoutId") { type = NavType.StringType },
+                    navArgument("exercise") { type = NavType.StringType },
+                ),
+            ) { entry ->
+                val workoutId = entry.arguments?.getString("workoutId").orEmpty()
+                SessionExerciseScreen(
+                    workoutId = workoutId,
+                    exercise = entry.arguments?.getString("exercise").orEmpty(),
+                    onBack = { navController.popBackStack() },
+                    onOpenHistory = { exercise ->
+                        navController.navigate(Routes.exerciseHistory(exercise))
+                    },
+                    onOpenExercise = { exercise ->
+                        // Replace rather than stack, so backing out of the last
+                        // exercise returns to the session and not through every
+                        // exercise you worked through to get here.
+                        navController.navigate(Routes.sessionExercise(workoutId, exercise)) {
+                            popUpTo(Routes.SESSION_EXERCISE) { inclusive = true }
+                        }
+                    },
                 )
             }
             composable(

@@ -1,5 +1,6 @@
 package com.workouttracker.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,11 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
@@ -31,7 +31,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -43,8 +42,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,7 +51,6 @@ import com.workouttracker.data.MuscleGroup
 import com.workouttracker.data.SetEntry
 import com.workouttracker.data.Workout
 import com.workouttracker.data.WorkoutRepository
-import com.workouttracker.rest.RestTimer
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -65,12 +61,8 @@ import java.time.ZoneOffset
 
 class WorkoutDetailViewModel(
     private val repository: WorkoutRepository,
-    private val restTimer: RestTimer,
     private val workoutId: String,
 ) : ViewModel() {
-
-    /** Seconds of rest left, or null when no rest is running. */
-    val restRemaining: StateFlow<Int?> = restTimer.remaining
 
     val workout: StateFlow<Workout?> = repository.observeWorkout(workoutId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -87,29 +79,17 @@ class WorkoutDetailViewModel(
 
     fun setDate(date: LocalDate) = edit { it.copy(date = date.toEpochDay()) }
 
-    /** [muscleGroup] null means "work it out from the name" (adding another set). */
+    /** [muscleGroup] null means "work it out from the name". */
     fun addSet(exercise: String, muscleGroup: MuscleGroup? = null) {
-        viewModelScope.launch {
-            repository.addSet(workoutId, exercise.trim(), muscleGroup)
-            restTimer.startIfEnabled()
-        }
+        viewModelScope.launch { repository.addSet(workoutId, exercise.trim(), muscleGroup) }
     }
 
-    /** Creates the exercise, then logs a first set of it. */
+    /** Creates the exercise, then adds a first set of it to this session. */
     fun createExerciseAndAddSet(name: String, muscleGroup: MuscleGroup) {
         viewModelScope.launch {
             val stored = repository.addCustomExercise(name, muscleGroup)
             repository.addSet(workoutId, stored, muscleGroup)
-            restTimer.startIfEnabled()
         }
-    }
-
-    fun updateSet(set: SetEntry, reps: Int = set.reps, weightKg: Double = set.weightKg) {
-        viewModelScope.launch { repository.updateSet(set.copy(reps = reps, weightKg = weightKg)) }
-    }
-
-    fun deleteSet(id: String) {
-        viewModelScope.launch { repository.deleteSet(id) }
     }
 
     fun deleteWorkout(onDeleted: () -> Unit) {
@@ -119,26 +99,30 @@ class WorkoutDetailViewModel(
         }
     }
 
-    fun adjustRest(deltaSeconds: Int) = restTimer.adjust(deltaSeconds)
-
-    fun skipRest() = restTimer.stop()
-
     private fun edit(transform: (Workout) -> Workout) {
         val current = workout.value ?: return
         viewModelScope.launch { repository.updateWorkout(transform(current)) }
     }
 }
 
+/**
+ * A session: its name, date, notes, and the exercises in it. Each exercise
+ * opens onto its own screen -- editing sets inline made every session a wall
+ * of text fields, and none of it said what was actually done yet.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkoutDetailScreen(workoutId: String, onBack: () -> Unit) {
+fun WorkoutDetailScreen(
+    workoutId: String,
+    onBack: () -> Unit,
+    onOpenExercise: (String) -> Unit,
+) {
     val viewModel = appViewModel(key = workoutId) { app ->
-        WorkoutDetailViewModel(app.repository, app.restTimer, workoutId)
+        WorkoutDetailViewModel(app.repository, workoutId)
     }
     val workout by viewModel.workout.collectAsStateWithLifecycle()
     val sets by viewModel.sets.collectAsStateWithLifecycle()
     val customExercises by viewModel.customExercises.collectAsStateWithLifecycle()
-    val restRemaining by viewModel.restRemaining.collectAsStateWithLifecycle()
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showAddExercise by remember { mutableStateOf(false) }
@@ -161,15 +145,7 @@ fun WorkoutDetailScreen(workoutId: String, onBack: () -> Unit) {
                 },
             )
         },
-        bottomBar = {
-            restRemaining?.let { seconds ->
-                RestTimerBar(
-                    seconds = seconds,
-                    onAdjust = viewModel::adjustRest,
-                    onSkip = viewModel::skipRest,
-                )
-            }
-        },
+        bottomBar = { RestTimerBar() },
     ) { padding ->
         if (current == null) {
             // Either still loading, or the workout was just deleted.
@@ -177,7 +153,7 @@ fun WorkoutDetailScreen(workoutId: String, onBack: () -> Unit) {
             return@Scaffold
         }
 
-        // Sets are grouped by exercise, in the order each exercise first appears.
+        // Sets grouped by exercise, in the order each exercise first appears.
         val groups = remember(sets) { sets.groupBy(SetEntry::exercise).toList() }
 
         LazyColumn(
@@ -205,12 +181,10 @@ fun WorkoutDetailScreen(workoutId: String, onBack: () -> Unit) {
                 }
             }
             items(groups, key = { it.first }) { (exercise, exerciseSets) ->
-                ExerciseCard(
+                ExerciseRow(
                     exercise = exercise,
                     sets = exerciseSets,
-                    onAddSet = { viewModel.addSet(exercise) },
-                    onUpdate = viewModel::updateSet,
-                    onDelete = viewModel::deleteSet,
+                    onOpen = { onOpenExercise(exercise) },
                 )
             }
             item {
@@ -296,124 +270,37 @@ fun WorkoutDetailScreen(workoutId: String, onBack: () -> Unit) {
 
 private const val MILLIS_PER_DAY = 86_400_000L
 
-/** Shown only while a rest is counting down, so it costs nothing the rest of the time. */
+/** One exercise in the session: how far through it you are, and a way in. */
 @Composable
-private fun RestTimerBar(
-    seconds: Int,
-    onAdjust: (Int) -> Unit,
-    onSkip: () -> Unit,
-) {
-    Surface(tonalElevation = 3.dp) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Rest", style = MaterialTheme.typography.labelMedium)
-            Text(
-                formatCountdown(seconds),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = { onAdjust(-15) }) { Text("−15s") }
-            TextButton(onClick = { onAdjust(15) }) { Text("+15s") }
-            TextButton(onClick = onSkip) { Text("Skip") }
-        }
-    }
-}
-
-@Composable
-private fun ExerciseCard(
+private fun ExerciseRow(
     exercise: String,
     sets: List<SetEntry>,
-    onAddSet: () -> Unit,
-    onUpdate: (SetEntry, Int, Double) -> Unit,
-    onDelete: (String) -> Unit,
+    onOpen: () -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text(exercise, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            sets.forEachIndexed { index, set ->
-                SetRow(
-                    index = index + 1,
-                    set = set,
-                    onUpdate = { reps, weight -> onUpdate(set, reps, weight) },
-                    onDelete = { onDelete(set.id) },
+    val done = sets.count { it.completed }
+    val finished = sets.isNotEmpty() && done == sets.size
+
+    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(exercise, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "$done of ${sets.size} sets",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = onAddSet) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(Modifier.width(4.dp))
-                Text("Add set")
+            if (finished) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = "All sets done",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }
-}
-
-@Composable
-private fun SetRow(
-    index: Int,
-    set: SetEntry,
-    onUpdate: (reps: Int, weightKg: Double) -> Unit,
-    onDelete: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            "$index",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(20.dp),
-        )
-        NumberField(
-            initial = set.reps.toString(),
-            label = "reps",
-            modifier = Modifier.weight(1f),
-            onValue = { text -> text.toIntOrNull()?.let { onUpdate(it, set.weightKg) } },
-        )
-        NumberField(
-            initial = formatWeight(set.weightKg),
-            label = "kg",
-            decimal = true,
-            modifier = Modifier.weight(1f),
-            onValue = { text -> text.toDoubleOrNull()?.let { onUpdate(set.reps, it) } },
-        )
-        IconButton(onClick = onDelete) {
-            Icon(Icons.Outlined.Close, contentDescription = "Remove set")
-        }
-    }
-}
-
-/**
- * Numeric field that keeps its own text so the user can clear it mid-edit, and
- * only writes back once the text parses.
- */
-@Composable
-private fun NumberField(
-    initial: String,
-    label: String,
-    modifier: Modifier = Modifier,
-    decimal: Boolean = false,
-    onValue: (String) -> Unit,
-) {
-    var text by remember(initial) { mutableStateOf(initial) }
-    OutlinedTextField(
-        value = text,
-        onValueChange = { raw ->
-            val filtered = raw.filter { it.isDigit() || (decimal && it == '.') }
-            text = filtered
-            onValue(filtered)
-        },
-        label = { Text(label) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number,
-            imeAction = ImeAction.Next,
-        ),
-        modifier = modifier,
-    )
 }

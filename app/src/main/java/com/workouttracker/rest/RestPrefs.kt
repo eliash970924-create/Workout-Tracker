@@ -5,8 +5,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Rest lengths offered in settings, in seconds. */
+/** Rest lengths offered as one-tap chips, in seconds. Any other length can
+ * be typed in; these are only the common ones. */
 val REST_PRESETS = listOf(60, 90, 120, 180)
+
+const val MIN_REST_SECONDS = 5
+const val MAX_REST_SECONDS = 30 * 60
 
 data class RestSettings(
     val enabled: Boolean = true,
@@ -31,9 +35,12 @@ class RestPrefs(context: Context) {
         _state.value = _state.value.copy(enabled = enabled)
     }
 
+    /** Clamped here rather than only at the timer, so settings shows what will
+     * actually happen. */
     fun setSeconds(seconds: Int) {
-        prefs.edit().putInt(KEY_SECONDS, seconds).apply()
-        _state.value = _state.value.copy(seconds = seconds)
+        val clamped = seconds.coerceIn(MIN_REST_SECONDS, MAX_REST_SECONDS)
+        prefs.edit().putInt(KEY_SECONDS, clamped).apply()
+        _state.value = _state.value.copy(seconds = clamped)
     }
 
     private companion object {

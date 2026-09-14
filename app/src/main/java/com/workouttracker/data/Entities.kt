@@ -57,6 +57,12 @@ data class SetEntry(
      */
     @ColumnInfo(defaultValue = "OTHER")
     val muscleGroup: String = MuscleGroup.OTHER.name,
+    /**
+     * Ticked off during the session. Sets are planned first and completed as
+     * they are done, so a set can exist without having been performed yet.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val completed: Boolean = false,
     val updatedAt: Long,
     val deleted: Boolean = false,
 )
