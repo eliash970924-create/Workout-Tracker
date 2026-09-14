@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -53,6 +54,7 @@ import com.workouttracker.data.MuscleGroup
 import com.workouttracker.data.SetEntry
 import com.workouttracker.data.Workout
 import com.workouttracker.data.WorkoutRepository
+import com.workouttracker.rest.RestTimer
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -63,8 +65,12 @@ import java.time.ZoneOffset
 
 class WorkoutDetailViewModel(
     private val repository: WorkoutRepository,
+    private val restTimer: RestTimer,
     private val workoutId: String,
 ) : ViewModel() {
+
+    /** Seconds of rest left, or null when no rest is running. */
+    val restRemaining: StateFlow<Int?> = restTimer.remaining
 
     val workout: StateFlow<Workout?> = repository.observeWorkout(workoutId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -83,7 +89,10 @@ class WorkoutDetailViewModel(
 
     /** [muscleGroup] null means "work it out from the name" (adding another set). */
     fun addSet(exercise: String, muscleGroup: MuscleGroup? = null) {
-        viewModelScope.launch { repository.addSet(workoutId, exercise.trim(), muscleGroup) }
+        viewModelScope.launch {
+            repository.addSet(workoutId, exercise.trim(), muscleGroup)
+            restTimer.startIfEnabled()
+        }
     }
 
     /** Creates the exercise, then logs a first set of it. */
@@ -91,6 +100,7 @@ class WorkoutDetailViewModel(
         viewModelScope.launch {
             val stored = repository.addCustomExercise(name, muscleGroup)
             repository.addSet(workoutId, stored, muscleGroup)
+            restTimer.startIfEnabled()
         }
     }
 
@@ -109,6 +119,10 @@ class WorkoutDetailViewModel(
         }
     }
 
+    fun adjustRest(deltaSeconds: Int) = restTimer.adjust(deltaSeconds)
+
+    fun skipRest() = restTimer.stop()
+
     private fun edit(transform: (Workout) -> Workout) {
         val current = workout.value ?: return
         viewModelScope.launch { repository.updateWorkout(transform(current)) }
@@ -119,11 +133,12 @@ class WorkoutDetailViewModel(
 @Composable
 fun WorkoutDetailScreen(workoutId: String, onBack: () -> Unit) {
     val viewModel = appViewModel(key = workoutId) { app ->
-        WorkoutDetailViewModel(app.repository, workoutId)
+        WorkoutDetailViewModel(app.repository, app.restTimer, workoutId)
     }
     val workout by viewModel.workout.collectAsStateWithLifecycle()
     val sets by viewModel.sets.collectAsStateWithLifecycle()
     val customExercises by viewModel.customExercises.collectAsStateWithLifecycle()
+    val restRemaining by viewModel.restRemaining.collectAsStateWithLifecycle()
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showAddExercise by remember { mutableStateOf(false) }
@@ -145,6 +160,15 @@ fun WorkoutDetailScreen(workoutId: String, onBack: () -> Unit) {
                     }
                 },
             )
+        },
+        bottomBar = {
+            restRemaining?.let { seconds ->
+                RestTimerBar(
+                    seconds = seconds,
+                    onAdjust = viewModel::adjustRest,
+                    onSkip = viewModel::skipRest,
+                )
+            }
         },
     ) { padding ->
         if (current == null) {
@@ -271,6 +295,32 @@ fun WorkoutDetailScreen(workoutId: String, onBack: () -> Unit) {
 }
 
 private const val MILLIS_PER_DAY = 86_400_000L
+
+/** Shown only while a rest is counting down, so it costs nothing the rest of the time. */
+@Composable
+private fun RestTimerBar(
+    seconds: Int,
+    onAdjust: (Int) -> Unit,
+    onSkip: () -> Unit,
+) {
+    Surface(tonalElevation = 3.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Rest", style = MaterialTheme.typography.labelMedium)
+            Text(
+                formatCountdown(seconds),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { onAdjust(-15) }) { Text("−15s") }
+            TextButton(onClick = { onAdjust(15) }) { Text("+15s") }
+            TextButton(onClick = onSkip) { Text("Skip") }
+        }
+    }
+}
 
 @Composable
 private fun ExerciseCard(

@@ -46,4 +46,17 @@ class FormatTest {
         assertEquals("5 min ago", formatRelativeTime(now - 300_000, now))
         assertEquals("2 h ago", formatRelativeTime(now - 7_200_000, now))
     }
+
+    @Test
+    fun `the countdown always pads its seconds`() {
+        assertEquals("1:30", formatCountdown(90))
+        assertEquals("0:05", formatCountdown(5))
+        assertEquals("3:00", formatCountdown(180))
+        assertEquals("0:00", formatCountdown(0))
+    }
+
+    @Test
+    fun `a countdown past zero reads zero rather than going negative`() {
+        assertEquals("0:00", formatCountdown(-3))
+    }
 }

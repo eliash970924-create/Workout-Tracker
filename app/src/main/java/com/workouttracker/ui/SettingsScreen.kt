@@ -1,9 +1,11 @@
 package com.workouttracker.ui
 
+import android.Manifest
 import android.app.Activity
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,6 +45,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.workouttracker.rest.REST_PRESETS
+import com.workouttracker.rest.RestPrefs
+import com.workouttracker.rest.RestSettings
 import com.workouttracker.sync.DriveAuth
 import com.workouttracker.sync.SyncInterval
 import com.workouttracker.sync.SyncManager
@@ -55,10 +60,17 @@ import kotlinx.coroutines.launch
 class SettingsViewModel(
     private val context: Context,
     private val prefs: SyncPrefs,
+    private val restPrefs: RestPrefs,
     private val syncManager: SyncManager,
 ) : ViewModel() {
 
     val state: StateFlow<SyncState> = prefs.state
+
+    val rest: StateFlow<RestSettings> = restPrefs.state
+
+    fun setRestEnabled(enabled: Boolean) = restPrefs.setEnabled(enabled)
+
+    fun setRestSeconds(seconds: Int) = restPrefs.setSeconds(seconds)
 
     fun setAutoSync(enabled: Boolean) {
         prefs.setAutoSync(enabled)
@@ -102,9 +114,10 @@ class SettingsViewModel(
 @Composable
 fun SettingsScreen() {
     val viewModel = appViewModel { app ->
-        SettingsViewModel(app, app.syncPrefs, app.syncManager)
+        SettingsViewModel(app, app.syncPrefs, app.restPrefs, app.syncManager)
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val rest by viewModel.rest.collectAsStateWithLifecycle()
 
     val consentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -112,9 +125,16 @@ fun SettingsScreen() {
         viewModel.onConsentResult(result.resultCode == Activity.RESULT_OK, result.data)
     }
 
+    // Asked for when the timer is switched on rather than at launch, so the
+    // prompt arrives attached to the feature that needs it. Refusing it costs
+    // only the notification: the countdown and the buzz still work.
+    val notificationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Backup & sync") })
+            TopAppBar(title = { Text("Settings") })
         },
     ) { padding ->
         Column(
@@ -125,6 +145,46 @@ fun SettingsScreen() {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Rest timer", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Starts counting down as soon as you log a set, and buzzes " +
+                                    "when the rest is up.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = rest.enabled,
+                            onCheckedChange = { enabled ->
+                                viewModel.setRestEnabled(enabled)
+                                if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                        )
+                    }
+                    if (rest.enabled) {
+                        Spacer(Modifier.height(12.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            REST_PRESETS.forEach { seconds ->
+                                FilterChip(
+                                    selected = rest.seconds == seconds,
+                                    onClick = { viewModel.setRestSeconds(seconds) },
+                                    label = { Text(formatCountdown(seconds)) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Google Drive", style = MaterialTheme.typography.titleMedium)

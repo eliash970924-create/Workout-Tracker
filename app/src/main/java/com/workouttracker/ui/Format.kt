@@ -41,3 +41,9 @@ fun formatRelativeTime(millis: Long, now: Long = System.currentTimeMillis()): St
         else -> Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate().format(dayFormat)
     }
 }
+
+/** "1:30" for the rest countdown. */
+fun formatCountdown(seconds: Int): String {
+    val left = seconds.coerceAtLeast(0)
+    return String.format(Locale.US, "%d:%02d", left / 60, left % 60)
+}

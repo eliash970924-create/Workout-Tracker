@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -23,7 +24,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -59,6 +62,9 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
     val bestSet = remember(sets) { sets.maxByOrNull { it.weightKg } }
     val totalVolume = remember(sets) { sets.sumOf { it.reps * it.weightKg } }
 
+    var metric by remember { mutableStateOf(ProgressMetric.TOP_SET) }
+    val points = remember(sets, metric) { progressPoints(sets, metric) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -89,6 +95,27 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
                             bestSet?.let { "${formatWeight(it.weightKg)} kg × ${it.reps}" } ?: "—",
                         )
                         Stat("Volume", formatVolume(totalVolume))
+                    }
+                }
+            }
+            // One session is a data point, not a trend; the chart earns its
+            // space only once there is something to compare against.
+            if (points.size >= 2) {
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ProgressMetric.entries.forEach { option ->
+                                    FilterChip(
+                                        selected = metric == option,
+                                        onClick = { metric = option },
+                                        label = { Text(option.label) },
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            ProgressChart(points = points, metric = metric)
+                        }
                     }
                 }
             }

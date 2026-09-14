@@ -6,7 +6,7 @@ automatic background sync to a private folder in your Google Drive.
 
 ## Features
 
-- **Three tabs** — Workouts, History, Backup & sync.
+- **Three tabs** — Workouts, History, Settings.
 - **Log sessions** — name, date, free-text notes.
 - **Exercises and sets** — reps and weight per set, grouped by exercise. Adding
   a set reuses the last reps/weight for that exercise, so logging 5×5 is four
@@ -17,6 +17,15 @@ automatic background sync to a private folder in your Google Drive.
   (it ships with the app, so syncing it would be pure duplication).
 - **History per exercise** — every exercise you have trained, filterable by
   muscle group. Open one for its sessions, best set and total volume.
+- **Progress chart** — per exercise, a line of top set or total volume across
+  sessions. Points are spaced by date, so a month off looks like a month off
+  rather than steady training. Appears once there are two sessions to compare.
+- **Rest timer** — starts on its own when you log a set, counts down in a bar
+  at the bottom of the session, and buzzes when the rest is up. Adjustable by
+  15 seconds either way, skippable, and switched off in Settings if you would
+  rather it left you alone. It runs in the app process rather than as an alarm,
+  so it needs no exact-alarm permission but does not survive Android killing
+  the app mid-rest.
 - **Session list** — every workout with its set count and total volume
   (reps × weight), newest first.
 - **Auto sync to Google Drive** — see below.

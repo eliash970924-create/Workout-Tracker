@@ -4,6 +4,8 @@ import android.app.Application
 import com.workouttracker.data.AppDatabase
 import com.workouttracker.data.SyncTrigger
 import com.workouttracker.data.WorkoutRepository
+import com.workouttracker.rest.RestPrefs
+import com.workouttracker.rest.RestTimer
 import com.workouttracker.sync.SyncManager
 import com.workouttracker.sync.SyncPrefs
 import com.workouttracker.sync.SyncScheduler
@@ -18,6 +20,10 @@ class WorkoutApp : Application() {
     val database: AppDatabase by lazy { AppDatabase.build(this) }
 
     val syncPrefs: SyncPrefs by lazy { SyncPrefs(this) }
+
+    val restPrefs: RestPrefs by lazy { RestPrefs(this) }
+
+    val restTimer: RestTimer by lazy { RestTimer(this, restPrefs) }
 
     val repository: WorkoutRepository by lazy {
         WorkoutRepository(
