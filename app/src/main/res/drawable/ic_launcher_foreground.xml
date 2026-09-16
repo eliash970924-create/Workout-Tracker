@@ -3,20 +3,26 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Dumbbell, centred inside the 72dp adaptive-icon safe zone. -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M40,50h28v8h-28z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M32,44h8v20h-8z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M68,44h8v20h-8z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M24,40h8v28h-8z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M76,40h8v28h-8z" />
+    <!--
+      A dumbbell on the diagonal: grey plates, teal bar.
+
+      Drawn flat and rotated as a group, which keeps the path data readable.
+      The alternative is four rectangles with hand-computed corners. The whole
+      thing is sized to sit inside the 72dp safe zone once rotated, so no
+      launcher mask can clip an end off.
+    -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="-35">
+        <path
+            android:fillColor="#1B6C8C"
+            android:pathData="M35,50h38v8h-38z" />
+        <path
+            android:fillColor="#D5D5D5"
+            android:pathData="M24,38h11v32h-11z" />
+        <path
+            android:fillColor="#D5D5D5"
+            android:pathData="M73,38h11v32h-11z" />
+    </group>
 </vector>

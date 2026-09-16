@@ -1,3 +1,4 @@
 <resources>
-    <color name="ic_launcher_background">#1B5E4A</color>
+    <!-- The charcoal the dumbbell sits on. -->
+    <color name="ic_launcher_background">#1C1C1C</color>
 </resources>

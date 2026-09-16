@@ -1,11 +1,12 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
+    android:width="108dp"
+    android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <!--
-      The launcher dumbbell at notification size. A status bar icon is drawn as
-      a white silhouette on transparent, which is what this already is.
+      The themed-icon layer. The system tints this to match the wallpaper, so
+      it has to be one flat silhouette rather than the coloured version: two
+      greys and a teal would come out as one indistinct blob.
     -->
     <group
         android:pivotX="54"
