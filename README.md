@@ -32,11 +32,17 @@ automatic background sync to a private folder in your Google Drive.
   switched off — in Settings. Individual exercises can override that from the
   timer icon on their screen, because deadlifts need longer than curls; the
   override syncs, and clearing it goes back to the default. The countdown also
-  runs in the notification shade, with +15s and Skip on it, and on Android 16
-  asks to be promoted to a Live Update — the lock screen, the status bar chip,
-  and Now Bar on Samsung. A foreground service keeps it alive for the length of
-  the rest, typed `specialUse` because `shortService` is capped at three
-  minutes and a rest can be set to thirty.
+  runs in the notification shade, with +15s and Skip on it. A foreground
+  service keeps it alive for the length of the rest, typed `specialUse`
+  because `shortService` is capped at three minutes and a rest can be set to
+  thirty.
+
+  It also asks Android 16 to promote it to a Live Update, which is meant to put
+  it on the lock screen and in the status bar chip. Android grants that — the
+  posted notification comes back carrying `FLAG_PROMOTED_ONGOING` — but One UI
+  8.5 draws none of it: no chip, no lock screen, nothing in Now Bar. That is
+  Samsung's side of the line and no change here reaches it. The request costs
+  nothing and stays, so it will appear on its own if One UI starts honouring it.
 - **Session list** — every workout with its set count and total volume
   (reps × weight), newest first.
 - **Auto sync to Google Drive** — see below.

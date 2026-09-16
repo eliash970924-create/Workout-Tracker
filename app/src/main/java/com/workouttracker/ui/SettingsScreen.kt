@@ -179,17 +179,6 @@ fun SettingsScreen() {
                             },
                         )
                     }
-                    if (rest.enabled) {
-                        Spacer(Modifier.height(12.dp))
-                        // Temporary, while working out why the countdown is not
-                        // being promoted to a Live Update on a phone that
-                        // supports them.
-                        Text(
-                            "Live updates — ${LiveUpdates.diagnose(context)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
                     if (rest.enabled && !LiveUpdates.allowed(context)) {
                         Spacer(Modifier.height(12.dp))
                         Text(

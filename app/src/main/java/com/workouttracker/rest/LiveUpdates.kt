@@ -1,6 +1,5 @@
 package com.workouttracker.rest
 
-import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -27,43 +26,6 @@ object LiveUpdates {
         if (!supported()) return true
         val manager = context.getSystemService(NotificationManager::class.java) ?: return true
         return manager.canPostPromotedNotifications()
-    }
-
-    /**
-     * Why the countdown is or is not being promoted, as the system sees it.
-     *
-     * Three separate things have to hold and only the platform can say which
-     * one is missing: the OS has to be new enough, the user has to allow it,
-     * and the notification itself has to qualify. Working that out by reading
-     * the eligibility list and guessing is how an afternoon disappears.
-     */
-    fun diagnose(context: Context): String {
-        if (!supported()) return "Not supported below Android 16."
-        val allowed = allowed(context)
-        val promotable = runCatching {
-            RestNotifications
-                .running(context, RestState(60, 90, System.currentTimeMillis() + 60_000, "Sample"))
-                .hasPromotableCharacteristics()
-        }.fold(onSuccess = { if (it) "yes" else "no" }, onFailure = { "unknown" })
-        return "Supported: yes · Allowed by you: ${if (allowed) "yes" else "no"} · " +
-            "Notification qualifies: $promotable · Posted now: ${postedState(context)}"
-    }
-
-    /**
-     * Whether the countdown currently on screen was actually promoted.
-     *
-     * The check above builds a sample notification; this looks at the real one,
-     * which is posted through a foreground service and could differ. The system
-     * sets the flag itself, so this is its answer rather than ours.
-     */
-    private fun postedState(context: Context): String {
-        val manager = context.getSystemService(NotificationManager::class.java)
-            ?: return "unknown"
-        val posted = manager.activeNotifications
-            .firstOrNull { it.id == RestNotifications.RUNNING_ID }
-            ?: return "no rest running"
-        val promoted = posted.notification.flags and Notification.FLAG_PROMOTED_ONGOING != 0
-        return if (promoted) "promoted" else "posted, NOT promoted"
     }
 
     /**
