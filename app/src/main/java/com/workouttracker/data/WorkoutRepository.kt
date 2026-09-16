@@ -39,6 +39,10 @@ class WorkoutRepository(
 
     fun observeCustomExercises(): Flow<List<CustomExercise>> = dao.observeCustomExercises()
 
+    /** Earlier sets of [exercise], newest session first, ignoring the one in hand. */
+    fun observePreviousSets(exercise: String, excludeWorkoutId: String): Flow<List<SetWithSession>> =
+        dao.observePreviousSets(exercise, excludeWorkoutId)
+
     /** Adds a user-defined exercise. Returns the name as stored, trimmed. */
     suspend fun addCustomExercise(name: String, muscleGroup: MuscleGroup): String {
         val trimmed = name.trim()
@@ -147,6 +151,115 @@ class WorkoutRepository(
         val set = dao.findSet(id) ?: return
         dao.upsertSet(set.copy(deleted = true, updatedAt = now()))
         syncTrigger.onLocalChange()
+    }
+
+    /** Drops an exercise from a session, tombstoning all of its sets at once. */
+    suspend fun deleteExercise(workoutId: String, exercise: String) {
+        val sets = dao.setsOfExerciseIn(workoutId, exercise)
+        if (sets.isEmpty()) return
+        db.withTransaction {
+            for (set in sets) dao.upsertSet(set.copy(deleted = true, updatedAt = now()))
+        }
+        syncTrigger.onLocalChange()
+    }
+
+    /**
+     * Moves a set [delta] places within its own exercise by swapping positions
+     * with the neighbour it passes. Other exercises are untouched, so a set
+     * that is positionally interleaved with another exercise stays that way.
+     */
+    suspend fun moveSet(setId: String, delta: Int) {
+        val set = dao.findSet(setId) ?: return
+        val siblings = dao.setsOfExerciseIn(set.workoutId, set.exercise)
+        val index = siblings.indexOfFirst { it.id == setId }
+        val target = index + delta
+        if (index < 0 || target !in siblings.indices) return
+        val other = siblings[target]
+        db.withTransaction {
+            dao.upsertSet(set.copy(position = other.position, updatedAt = now()))
+            dao.upsertSet(other.copy(position = set.position, updatedAt = now()))
+        }
+        syncTrigger.onLocalChange()
+    }
+
+    /**
+     * Moves a whole exercise [delta] places in the session.
+     *
+     * Exercise order is "lowest position first", so this renumbers rather than
+     * swaps: each exercise's sets end up contiguous and in the new order. A
+     * session that had two exercises interleaved is tidied up as a side effect,
+     * which matches how the session screen already presents them.
+     */
+    suspend fun moveExercise(workoutId: String, exercise: String, delta: Int) {
+        val order = dao.setsOf(workoutId).map { it.exercise }.distinct().toMutableList()
+        val index = order.indexOf(exercise)
+        val target = index + delta
+        if (index < 0 || target !in order.indices) return
+        order.add(target, order.removeAt(index))
+        db.withTransaction { renumber(workoutId, order) }
+        syncTrigger.onLocalChange()
+    }
+
+    /**
+     * Replaces this exercise's un-ticked sets with the ones from the last
+     * session it was trained in. Ticked sets are what you actually did, so they
+     * stay; only the plan is overwritten. Returns how many sets were copied.
+     */
+    suspend fun copyLastSession(workoutId: String, exercise: String): Int {
+        val copied = db.withTransaction {
+            val source = dao.lastWorkoutIdFor(exercise, workoutId)
+                ?: return@withTransaction 0
+            val template = dao.setsOfExerciseIn(source, exercise)
+            if (template.isEmpty()) return@withTransaction 0
+
+            // Captured before the deletes, so the exercise keeps its place in
+            // the session instead of being renumbered to the end.
+            val order = dao.setsOf(workoutId).map { it.exercise }.distinct()
+
+            for (set in dao.setsOfExerciseIn(workoutId, exercise).filter { !it.completed }) {
+                dao.upsertSet(set.copy(deleted = true, updatedAt = now()))
+            }
+            var position = dao.maxPosition(workoutId)
+            for (set in template) {
+                dao.upsertSet(
+                    SetEntry(
+                        id = UUID.randomUUID().toString(),
+                        workoutId = workoutId,
+                        exercise = exercise,
+                        reps = set.reps,
+                        weightKg = set.weightKg,
+                        position = ++position,
+                        muscleGroup = set.muscleGroup,
+                        updatedAt = now(),
+                    )
+                )
+            }
+            renumber(workoutId, order)
+            template.size
+        }
+        if (copied > 0) syncTrigger.onLocalChange()
+        return copied
+    }
+
+    /**
+     * Renumbers a session so its exercises run in [order] and each one's sets
+     * are contiguous. Only rows whose position actually moves are written, to
+     * keep the sync delta to what genuinely changed.
+     */
+    private suspend fun renumber(workoutId: String, order: List<String>) {
+        val byExercise = dao.setsOf(workoutId).groupBy { it.exercise }
+        var position = 0
+        // Anything absent from order -- an exercise added since it was taken --
+        // keeps its sets, after the ones that were named.
+        val names = order + byExercise.keys.filterNot { it in order }
+        for (name in names.distinct()) {
+            for (set in byExercise[name].orEmpty()) {
+                if (set.position != position) {
+                    dao.upsertSet(set.copy(position = position, updatedAt = now()))
+                }
+                position++
+            }
+        }
     }
 
     // --- sync support ---

@@ -1,6 +1,7 @@
 package com.workouttracker.ui
 
 import com.workouttracker.data.SetEntry
+import com.workouttracker.data.SetWithSession
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -56,5 +57,53 @@ class SessionExerciseTest {
     fun `an empty session has no order and no next`() {
         assertEquals(emptyList<String>(), exerciseOrder(emptyList()))
         assertNull(nextExercise(emptyList(), "Barbell Bench Press"))
+    }
+
+    private fun past(day: Long, reps: Int, weightKg: Double) = SetWithSession(
+        id = "$day-$reps-$weightKg",
+        exercise = "Deadlift",
+        reps = reps,
+        weightKg = weightKg,
+        position = 0,
+        workoutName = "Pull",
+        workoutDate = day,
+    )
+
+    @Test
+    fun `the previous session is the newest one, whole`() {
+        // The query returns newest first; only that session belongs on the card.
+        val previous = previousSession(
+            listOf(
+                past(30, 5, 100.0),
+                past(30, 5, 110.0),
+                past(20, 5, 90.0),
+            )
+        )
+
+        assertEquals(30L, previous?.date)
+        assertEquals(listOf(100.0, 110.0), previous?.sets?.map { it.weightKg })
+    }
+
+    @Test
+    fun `an exercise never trained before has no previous session`() {
+        assertNull(previousSession(emptyList()))
+    }
+
+    @Test
+    fun `sets are described as reps by weight`() {
+        assertEquals(
+            "5 × 100 kg, 3 × 110 kg",
+            describeSets(listOf(past(30, 5, 100.0), past(30, 3, 110.0))),
+        )
+    }
+
+    @Test
+    fun `a long session trails off rather than filling the card`() {
+        val sets = (1..6).map { past(30, 5, 100.0) }
+
+        assertEquals(
+            "5 × 100 kg, 5 × 100 kg, 5 × 100 kg, 5 × 100 kg, …",
+            describeSets(sets),
+        )
     }
 }

@@ -1,6 +1,7 @@
 package com.workouttracker.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,17 +14,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -92,6 +97,14 @@ class WorkoutDetailViewModel(
         }
     }
 
+    fun deleteExercise(exercise: String) {
+        viewModelScope.launch { repository.deleteExercise(workoutId, exercise) }
+    }
+
+    fun moveExercise(exercise: String, delta: Int) {
+        viewModelScope.launch { repository.moveExercise(workoutId, exercise, delta) }
+    }
+
     fun deleteWorkout(onDeleted: () -> Unit) {
         viewModelScope.launch {
             repository.deleteWorkout(workoutId)
@@ -127,6 +140,7 @@ fun WorkoutDetailScreen(
     var showDatePicker by remember { mutableStateOf(false) }
     var showAddExercise by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmRemove by remember { mutableStateOf<String?>(null) }
 
     val current = workout
     Scaffold(
@@ -180,11 +194,16 @@ fun WorkoutDetailScreen(
                     Text(formatDay(current.date))
                 }
             }
-            items(groups, key = { it.first }) { (exercise, exerciseSets) ->
+            itemsIndexed(groups, key = { _, group -> group.first }) { index, group ->
+                val (exercise, exerciseSets) = group
                 ExerciseRow(
                     exercise = exercise,
                     sets = exerciseSets,
+                    canMoveUp = index > 0,
+                    canMoveDown = index < groups.lastIndex,
                     onOpen = { onOpenExercise(exercise) },
+                    onMove = { delta -> viewModel.moveExercise(exercise, delta) },
+                    onRemove = { confirmRemove = exercise },
                 )
             }
             item {
@@ -250,6 +269,23 @@ fun WorkoutDetailScreen(
         )
     }
 
+    confirmRemove?.let { exercise ->
+        AlertDialog(
+            onDismissRequest = { confirmRemove = null },
+            title = { Text("Remove $exercise?") },
+            text = { Text("Its sets in this session will be removed from all your devices.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemove = null
+                    viewModel.deleteExercise(exercise)
+                }) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemove = null }) { Text("Cancel") }
+            },
+        )
+    }
+
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -270,37 +306,84 @@ fun WorkoutDetailScreen(
 
 private const val MILLIS_PER_DAY = 86_400_000L
 
-/** One exercise in the session: how far through it you are, and a way in. */
+/**
+ * One exercise in the session: how far through it you are, and a way in.
+ *
+ * Reordering and removal sit behind a long press rather than on the row. Both
+ * are rare next to "open it", and buttons for them would crowd the only thing
+ * you normally came here to tap.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ExerciseRow(
     exercise: String,
     sets: List<SetEntry>,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
     onOpen: () -> Unit,
+    onMove: (Int) -> Unit,
+    onRemove: () -> Unit,
 ) {
     val done = sets.count { it.completed }
     val finished = sets.isNotEmpty() && done == sets.size
+    var menuOpen by remember { mutableStateOf(false) }
 
-    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    Box {
+        Card(
+            Modifier.fillMaxWidth().combinedClickable(
+                onClick = onOpen,
+                onLongClick = { menuOpen = true },
+            )
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(exercise, style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    "$done of ${sets.size} sets",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(exercise, style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "$done of ${sets.size} sets",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (finished) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = "All sets done",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
-            if (finished) {
-                Icon(
-                    Icons.Default.Check,
-                    contentDescription = "All sets done",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text("Move up") },
+                enabled = canMoveUp,
+                leadingIcon = { Icon(Icons.Default.KeyboardArrowUp, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onMove(-1)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Move down") },
+                enabled = canMoveDown,
+                leadingIcon = { Icon(Icons.Default.KeyboardArrowDown, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onMove(1)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Remove from session") },
+                leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
+                onClick = {
+                    menuOpen = false
+                    onRemove()
+                },
+            )
         }
     }
 }

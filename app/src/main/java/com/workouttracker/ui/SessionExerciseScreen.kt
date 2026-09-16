@@ -1,6 +1,7 @@
 package com.workouttracker.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,17 +12,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,9 +52,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.workouttracker.data.SetEntry
+import com.workouttracker.data.SetWithSession
 import com.workouttracker.data.WorkoutRepository
 import com.workouttracker.rest.RestTimer
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -65,6 +74,30 @@ fun nextExercise(sets: List<SetEntry>, current: String): String? {
     return if (index < 0 || index == order.lastIndex) null else order[index + 1]
 }
 
+/** The most recent earlier session of an exercise, for the "last time" card. */
+data class PreviousSession(val date: Long, val sets: List<SetWithSession>)
+
+/**
+ * The newest session in [sets], which arrive newest first. Grouping by date
+ * rather than taking a fixed count keeps a session whole however many sets it
+ * held.
+ */
+fun previousSession(sets: List<SetWithSession>): PreviousSession? {
+    val newest = sets.firstOrNull() ?: return null
+    return PreviousSession(
+        date = newest.workoutDate,
+        sets = sets.takeWhile { it.workoutDate == newest.workoutDate },
+    )
+}
+
+/** "5 × 100 kg, 5 × 100 kg, 3 × 110 kg", trailing off once it would get long. */
+fun describeSets(sets: List<SetWithSession>, limit: Int = 4): String {
+    val shown = sets.take(limit).joinToString(", ") {
+        "${it.reps} × ${formatWeight(it.weightKg)} kg"
+    }
+    return if (sets.size > limit) "$shown, …" else shown
+}
+
 class SessionExerciseViewModel(
     private val repository: WorkoutRepository,
     private val restTimer: RestTimer,
@@ -76,8 +109,22 @@ class SessionExerciseViewModel(
     val sets: StateFlow<List<SetEntry>> = repository.observeSets(workoutId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** What this exercise looked like the last time it was trained. */
+    fun previousSessionOf(exercise: String): StateFlow<PreviousSession?> =
+        repository.observePreviousSets(exercise, workoutId)
+            .map(::previousSession)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     fun addSet(exercise: String) {
         viewModelScope.launch { repository.addSet(workoutId, exercise) }
+    }
+
+    fun moveSet(id: String, delta: Int) {
+        viewModelScope.launch { repository.moveSet(id, delta) }
+    }
+
+    fun copyLastSession(exercise: String) {
+        viewModelScope.launch { repository.copyLastSession(workoutId, exercise) }
     }
 
     fun setCompleted(id: String, completed: Boolean) {
@@ -112,6 +159,8 @@ fun SessionExerciseScreen(
         SessionExerciseViewModel(app.repository, app.restTimer, workoutId)
     }
     val allSets by viewModel.sets.collectAsStateWithLifecycle()
+    val previous by remember(exercise) { viewModel.previousSessionOf(exercise) }
+        .collectAsStateWithLifecycle()
 
     val sets = remember(allSets, exercise) { allSets.filter { it.exercise == exercise } }
     val next = remember(allSets, exercise) { nextExercise(allSets, exercise) }
@@ -140,11 +189,14 @@ fun SessionExerciseScreen(
             contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(sets, key = { it.id }) { set ->
+            itemsIndexed(sets, key = { _, set -> set.id }) { index, set ->
                 SetRow(
                     set = set,
+                    canMoveUp = index > 0,
+                    canMoveDown = index < sets.lastIndex,
                     onCompleted = { done -> viewModel.setCompleted(set.id, done) },
                     onUpdate = { reps, weight -> viewModel.updateSet(set, reps, weight) },
+                    onMove = { delta -> viewModel.moveSet(set.id, delta) },
                     onDelete = { viewModel.deleteSet(set.id) },
                 )
             }
@@ -156,6 +208,14 @@ fun SessionExerciseScreen(
                     Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("Add set")
+                }
+            }
+            previous?.let { last ->
+                item {
+                    LastTimeCard(
+                        previous = last,
+                        onCopy = { viewModel.copyLastSession(exercise) },
+                    )
                 }
             }
             if (finished) {
@@ -174,10 +234,15 @@ fun SessionExerciseScreen(
 @Composable
 private fun SetRow(
     set: SetEntry,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
     onCompleted: (Boolean) -> Unit,
     onUpdate: (reps: Int, weightKg: Double) -> Unit,
+    onMove: (Int) -> Unit,
     onDelete: () -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+
     Card(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
@@ -198,8 +263,76 @@ private fun SetRow(
                 modifier = Modifier.weight(1f),
                 onValue = { text -> text.toDoubleOrNull()?.let { onUpdate(set.reps, it) } },
             )
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Outlined.Close, contentDescription = "Remove set")
+            // Moving and removing share one button: three controls plus two
+            // fields do not fit a phone, and removing is no longer the only
+            // thing you might want to do to a row.
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Set options")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Move up") },
+                        enabled = canMoveUp,
+                        leadingIcon = {
+                            Icon(Icons.Default.KeyboardArrowUp, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onMove(-1)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Move down") },
+                        enabled = canMoveDown,
+                        leadingIcon = {
+                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onMove(1)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Remove set") },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.Close, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onDelete()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * What you did last time, and a one-tap way to start from it. Copying replaces
+ * the sets you have not ticked yet and leaves the ticked ones alone, so it is
+ * safe to press mid-exercise.
+ */
+@Composable
+private fun LastTimeCard(previous: PreviousSession, onCopy: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "Last time · ${formatDay(previous.date)}",
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                describeSets(previous.sets),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onCopy) {
+                Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Copy these sets")
             }
         }
     }

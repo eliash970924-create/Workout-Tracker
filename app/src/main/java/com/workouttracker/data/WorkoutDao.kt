@@ -52,6 +52,48 @@ interface WorkoutDao {
     @Query("SELECT * FROM exercise_sets WHERE workoutId = :workoutId AND exercise = :exercise AND deleted = 0 ORDER BY position DESC LIMIT 1")
     suspend fun lastSetOf(workoutId: String, exercise: String): SetEntry?
 
+    /** Every live set of one workout, in session order. */
+    @Query("SELECT * FROM exercise_sets WHERE workoutId = :workoutId AND deleted = 0 ORDER BY position ASC")
+    suspend fun setsOf(workoutId: String): List<SetEntry>
+
+    @Query(
+        """
+        SELECT * FROM exercise_sets
+        WHERE workoutId = :workoutId AND exercise = :exercise AND deleted = 0
+        ORDER BY position ASC
+        """
+    )
+    suspend fun setsOfExerciseIn(workoutId: String, exercise: String): List<SetEntry>
+
+    /** The workout this exercise was last done in, excluding the one in hand. */
+    @Query(
+        """
+        SELECT s.workoutId FROM exercise_sets s
+        JOIN workouts w ON w.id = s.workoutId
+        WHERE s.exercise = :exercise AND s.deleted = 0 AND w.deleted = 0
+          AND s.workoutId <> :excludeWorkoutId
+        ORDER BY w.date DESC, w.updatedAt DESC
+        LIMIT 1
+        """
+    )
+    suspend fun lastWorkoutIdFor(exercise: String, excludeWorkoutId: String): String?
+
+    /** Every earlier set of this exercise, newest session first, for the
+     * "last time" summary shown while logging. */
+    @Query(
+        """
+        SELECT s.id AS id, s.exercise AS exercise, s.reps AS reps,
+               s.weightKg AS weightKg, s.position AS position,
+               w.name AS workoutName, w.date AS workoutDate
+        FROM exercise_sets s
+        JOIN workouts w ON w.id = s.workoutId
+        WHERE s.exercise = :exercise AND s.deleted = 0 AND w.deleted = 0
+          AND s.workoutId <> :excludeWorkoutId
+        ORDER BY w.date DESC, s.position ASC
+        """
+    )
+    fun observePreviousSets(exercise: String, excludeWorkoutId: String): Flow<List<SetWithSession>>
+
     @Upsert
     suspend fun upsertWorkout(workout: Workout)
 

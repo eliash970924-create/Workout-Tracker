@@ -9,10 +9,14 @@ automatic background sync to a private folder in your Google Drive.
 - **Three tabs** — Workouts, History, Settings.
 - **Log sessions** — name, date, free-text notes.
 - **Exercises and sets** — a session is a list of exercises; open one for its
-  sets. Tick each set off as you do it, add or remove sets, and edit reps and
-  weight in place. Adding a set reuses the last reps/weight for that exercise,
-  so planning 5×5 is four taps after the first. The session list shows how far
-  through each exercise you are, and finishing one offers the next.
+  sets. Tick each set off as you do it, add or remove sets, reorder them, and
+  edit reps and weight in place. Adding a set reuses the last reps/weight for
+  that exercise, so planning 5×5 is four taps after the first. The session list
+  shows how far through each exercise you are, and finishing one offers the
+  next. Long-press an exercise there to move it or drop it from the session.
+- **Copy last time** — inside an exercise, what you did in its last session,
+  and one tap to start from it. Copying replaces the sets you have not ticked
+  yet and leaves the ticked ones alone, so it is safe mid-exercise.
 - **Built-in exercise library** — 92 common lifts across 12 muscle groups,
   searchable and filterable. Anything missing can be added as a custom exercise
   with its own muscle group; custom exercises sync, the built-in list does not
