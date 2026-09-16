@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.workouttracker.MainActivity
 import com.workouttracker.R
+import com.workouttracker.ui.formatCountdown
 
 /**
  * The two notifications the rest timer posts: one that counts down while you
@@ -46,10 +47,18 @@ object RestNotifications {
                 listOf(NotificationCompat.ProgressStyle.Segment(state.totalSeconds))
             )
 
+        val left = formatCountdown(state.remainingSeconds)
+
         return NotificationCompat.Builder(context, RUNNING_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Resting")
-            .setContentText(state.label ?: "Next set coming up")
+            // The exercise is the useful half; "resting" is obvious from the
+            // countdown next to it.
+            .setContentTitle(state.label?.let { "Resting · $it" } ?: "Resting")
+            // Spelled out in the text as well as the chronometer, because One UI
+            // does not always render the chronometer in the shade.
+            .setContentText("$left left")
+            // What the status bar chip shows when the notification is not open.
+            .setShortCriticalText(left)
             .setStyle(progress)
             // Android 16 and up can promote this to a Live Update: on the lock
             // screen, in the status bar chip, and in Now Bar on Samsung. Older

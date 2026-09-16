@@ -45,10 +45,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.workouttracker.rest.LiveUpdates
 import com.workouttracker.rest.REST_PRESETS
 import com.workouttracker.rest.RestPrefs
 import com.workouttracker.rest.RestSettings
@@ -123,6 +125,7 @@ fun SettingsScreen() {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val rest by viewModel.rest.collectAsStateWithLifecycle()
     var showCustomRest by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     val consentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -175,6 +178,22 @@ fun SettingsScreen() {
                                 }
                             },
                         )
+                    }
+                    if (rest.enabled && !LiveUpdates.allowed(context)) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "The countdown can also ride along on your lock screen " +
+                                "and in the status bar, but live updates are switched " +
+                                "off for this app.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = {
+                            runCatching { context.startActivity(LiveUpdates.settingsIntent(context)) }
+                        }) {
+                            Text("Turn live updates on")
+                        }
                     }
                     if (rest.enabled) {
                         Spacer(Modifier.height(12.dp))
