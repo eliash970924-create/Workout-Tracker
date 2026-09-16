@@ -29,9 +29,9 @@ import com.workouttracker.WorkoutApp
 @Composable
 fun RestTimerBar() {
     val app = LocalContext.current.applicationContext as WorkoutApp
-    val remaining by app.restTimer.remaining.collectAsStateWithLifecycle()
+    val rest by app.restTimer.state.collectAsStateWithLifecycle()
 
-    val seconds = remaining ?: return
+    val seconds = rest?.remainingSeconds ?: return
     Surface(tonalElevation = 3.dp) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),

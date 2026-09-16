@@ -31,9 +31,12 @@ automatic background sync to a private folder in your Google Drive.
   by 15 seconds either way, skippable, and set to any length you like — or
   switched off — in Settings. Individual exercises can override that from the
   timer icon on their screen, because deadlifts need longer than curls; the
-  override syncs, and clearing it goes back to the default. It runs in the app
-  process rather than as an alarm, so it needs no exact-alarm permission but
-  does not survive Android killing the app mid-rest.
+  override syncs, and clearing it goes back to the default. The countdown also
+  runs in the notification shade, with +15s and Skip on it, and on Android 16
+  asks to be promoted to a Live Update — the lock screen, the status bar chip,
+  and Now Bar on Samsung. A foreground service keeps it alive for the length of
+  the rest, typed `specialUse` because `shortService` is capped at three
+  minutes and a rest can be set to thirty.
 - **Session list** — every workout with its set count and total volume
   (reps × weight), newest first.
 - **Auto sync to Google Drive** — see below.

@@ -5,6 +5,11 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets the countdown be promoted to a Live Update on Android 16+,
+         which is what Samsung's Now Bar surfaces. Not a runtime permission. -->
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:name=".WorkoutApp"
@@ -28,5 +33,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          specialUse rather than shortService: a rest can be set to half an
+          hour and shortService is capped at three minutes. None of the other
+          types honestly describes a rest timer.
+        -->
+        <service
+            android:name=".rest.RestTimerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Counts down the rest between sets of an exercise." />
+        </service>
+
+        <receiver
+            android:name=".rest.RestActionReceiver"
+            android:exported="false" />
     </application>
 </manifest>

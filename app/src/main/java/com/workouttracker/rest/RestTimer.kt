@@ -1,18 +1,11 @@
 package com.workouttracker.rest
 
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import androidx.core.app.NotificationChannelCompat
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import com.workouttracker.MainActivity
-import com.workouttracker.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,15 +17,26 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
 
+/** A rest in progress. Null state means nothing is running. */
+data class RestState(
+    val remainingSeconds: Int,
+    val totalSeconds: Int,
+    /** Wall-clock finish time, which is what the notification counts down to. */
+    val endsAtMillis: Long,
+    /** The exercise being rested from, for the notification. */
+    val label: String? = null,
+)
+
 /**
  * The rest countdown between sets.
  *
  * It lives in the application container so it keeps running while you move
  * between screens, and it counts against [SystemClock.elapsedRealtime] rather
- * than tick counts, so a paused screen does not slow it down. It is not an
- * alarm, though: if Android kills the process mid-rest the countdown goes with
- * it. That is the trade for needing no exact-alarm permission, and a rest is
- * short enough that it rarely matters.
+ * than tick counts, so a paused screen does not slow it down.
+ *
+ * While a rest is running, [RestTimerService] keeps the process alive and shows
+ * the countdown in the notification shade. The timer stays the single source of
+ * truth: the service only watches this state and stops itself when it clears.
  */
 class RestTimer(
     private val context: Context,
@@ -41,10 +45,10 @@ class RestTimer(
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
 ) {
 
-    private val _remaining = MutableStateFlow<Int?>(null)
+    private val _state = MutableStateFlow<RestState?>(null)
 
-    /** Seconds left, or null when no rest is running. */
-    val remaining: StateFlow<Int?> = _remaining.asStateFlow()
+    /** The running rest, or null when there is none. */
+    val state: StateFlow<RestState?> = _state.asStateFlow()
 
     private var countdown: Job? = null
 
@@ -53,44 +57,60 @@ class RestTimer(
      * timer on; [seconds] is the exercise's own rest length, or null to use the
      * default from Settings.
      */
-    fun startIfEnabled(seconds: Int? = null) {
+    fun startIfEnabled(seconds: Int? = null, label: String? = null) {
         val settings = prefs.state.value
-        if (settings.enabled) start(seconds ?: settings.seconds)
+        if (settings.enabled) start(seconds ?: settings.seconds, label)
     }
 
-    fun start(seconds: Int) {
+    fun start(seconds: Int, label: String? = null) {
+        // A rest already running means this is an adjustment, not a new rest,
+        // and the service is already up. Asking again from a notification
+        // action would be a foreground start from the background, which the
+        // system is entitled to refuse.
+        val alreadyRunning = _state.value != null
+        val carriedLabel = label ?: _state.value?.label
+
         countdown?.cancel()
         val total = seconds.coerceIn(MIN_REST_SECONDS, MAX_REST_SECONDS)
-        _remaining.value = total
+        val endsAtMillis = System.currentTimeMillis() + total * 1000L
+        _state.value = RestState(total, total, endsAtMillis, carriedLabel)
+
+        if (!alreadyRunning) RestTimerService.start(context)
+
         countdown = scope.launch {
             val endsAt = SystemClock.elapsedRealtime() + total * 1000L
             while (true) {
                 val millisLeft = endsAt - SystemClock.elapsedRealtime()
                 if (millisLeft <= 0L) break
                 // Round up, so a timer started at 90 reads "1:30" and not "1:29".
-                _remaining.value = ceil(millisLeft / 1000.0).toInt()
+                _state.value = RestState(
+                    remainingSeconds = ceil(millisLeft / 1000.0).toInt(),
+                    totalSeconds = total,
+                    endsAtMillis = endsAtMillis,
+                    label = carriedLabel,
+                )
                 delay(TICK_MILLIS)
             }
-            _remaining.value = null
-            announce()
+            _state.value = null
+            announce(carriedLabel)
         }
     }
 
     /** Lengthens or shortens the running rest. No-op when nothing is running. */
     fun adjust(deltaSeconds: Int) {
-        val left = _remaining.value ?: return
+        val left = _state.value?.remainingSeconds ?: return
         start(left + deltaSeconds)
     }
 
     fun stop() {
         countdown?.cancel()
         countdown = null
-        _remaining.value = null
+        _state.value = null
     }
 
-    private fun announce() {
+    private fun announce(label: String?) {
         vibrate()
-        postNotification()
+        RestNotifications.postDone(context, label)
     }
 
     private fun vibrate() {
@@ -102,41 +122,7 @@ class RestTimer(
         vibrator.vibrate(VibrationEffect.createOneShot(400L, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
-    private fun postNotification() {
-        val manager = NotificationManagerCompat.from(context)
-        manager.createNotificationChannel(
-            NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_HIGH)
-                .setName("Rest timer")
-                .setDescription("Tells you when a rest between sets is up.")
-                .build()
-        )
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Rest over")
-            .setContentText("Time for your next set.")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setAutoCancel(true)
-            .setContentIntent(
-                PendingIntent.getActivity(
-                    context,
-                    0,
-                    Intent(context, MainActivity::class.java),
-                    PendingIntent.FLAG_IMMUTABLE,
-                )
-            )
-            .build()
-        try {
-            manager.notify(NOTIFICATION_ID, notification)
-        } catch (_: SecurityException) {
-            // Notification permission was refused. The buzz, and the countdown
-            // on screen, are still the signal -- this is not worth crashing for.
-        }
-    }
-
     private companion object {
-        const val CHANNEL_ID = "rest_timer"
-        const val NOTIFICATION_ID = 1
         const val TICK_MILLIS = 200L
     }
 }

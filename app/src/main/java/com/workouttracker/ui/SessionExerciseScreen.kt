@@ -151,7 +151,9 @@ class SessionExerciseViewModel(
             // planning ahead, which should not start anything. Read the
             // exercise's own length here rather than from a cached flow, so a
             // rest just changed in the dialog applies to this very set.
-            if (completed) restTimer.startIfEnabled(repository.restSecondsFor(exercise))
+            if (completed) {
+                restTimer.startIfEnabled(repository.restSecondsFor(exercise), exercise)
+            }
         }
     }
 
