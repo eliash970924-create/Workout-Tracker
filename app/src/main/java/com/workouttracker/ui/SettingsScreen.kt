@@ -184,7 +184,7 @@ fun SettingsScreen() {
                         Text(
                             "The countdown can also ride along on your lock screen " +
                                 "and in the status bar, but live updates are switched " +
-                                "off for this app.",
+                                "off for this app. Turn them on under Live updates.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -192,7 +192,7 @@ fun SettingsScreen() {
                         OutlinedButton(onClick = {
                             runCatching { context.startActivity(LiveUpdates.settingsIntent(context)) }
                         }) {
-                            Text("Turn live updates on")
+                            Text("Open notification settings")
                         }
                     }
                     if (rest.enabled) {

@@ -28,8 +28,13 @@ object LiveUpdates {
         return manager.canPostPromotedNotifications()
     }
 
-    /** The system screen holding that per-app switch. */
+    /**
+     * This app's notification settings, which is where the live updates switch
+     * lives. There is a dedicated action for the switch itself, but not one
+     * this SDK exposes by name, and guessing at a constant is how you ship a
+     * button that crashes.
+     */
     fun settingsIntent(context: Context): Intent =
-        Intent(Settings.ACTION_MANAGE_APP_PROMOTED_NOTIFICATIONS)
+        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
 }
