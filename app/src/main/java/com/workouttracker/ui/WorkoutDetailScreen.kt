@@ -34,7 +34,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -176,11 +175,10 @@ fun WorkoutDetailScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                OutlinedTextField(
+                DraftTextField(
                     value = current.name,
                     onValueChange = viewModel::rename,
-                    label = { Text("Session") },
-                    singleLine = true,
+                    label = "Session",
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -217,10 +215,11 @@ fun WorkoutDetailScreen(
                 }
             }
             item {
-                OutlinedTextField(
+                DraftTextField(
                     value = current.notes,
                     onValueChange = viewModel::setNotes,
-                    label = { Text("Notes") },
+                    label = "Notes",
+                    singleLine = false,
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth(),
                 )

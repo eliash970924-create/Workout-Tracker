@@ -35,7 +35,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -420,8 +419,9 @@ private fun FinishedCard(next: String?, onNext: () -> Unit, onBack: () -> Unit) 
 }
 
 /**
- * Numeric field that keeps its own text so the user can clear it mid-edit, and
- * only writes back once the text parses.
+ * Numeric field that lets the user clear it mid-edit and only writes back once
+ * the text parses. Reps and weight round-trip through the database too, so the
+ * buffer has to be held the same way the session name's is.
  */
 @Composable
 private fun NumberField(
@@ -431,20 +431,15 @@ private fun NumberField(
     decimal: Boolean = false,
     onValue: (String) -> Unit,
 ) {
-    var text by remember(initial) { mutableStateOf(initial) }
-    OutlinedTextField(
-        value = text,
-        onValueChange = { raw ->
-            val filtered = raw.filter { it.isDigit() || (decimal && it == '.') }
-            text = filtered
-            onValue(filtered)
-        },
-        label = { Text(label) },
-        singleLine = true,
+    DraftTextField(
+        value = initial,
+        onValueChange = onValue,
+        label = label,
+        modifier = modifier,
         keyboardOptions = KeyboardOptions(
             keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number,
             imeAction = ImeAction.Next,
         ),
-        modifier = modifier,
+        transform = { raw -> raw.filter { it.isDigit() || (decimal && it == '.') } },
     )
 }
