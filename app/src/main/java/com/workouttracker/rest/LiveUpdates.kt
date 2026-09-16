@@ -29,6 +29,26 @@ object LiveUpdates {
     }
 
     /**
+     * Why the countdown is or is not being promoted, as the system sees it.
+     *
+     * Three separate things have to hold and only the platform can say which
+     * one is missing: the OS has to be new enough, the user has to allow it,
+     * and the notification itself has to qualify. Working that out by reading
+     * the eligibility list and guessing is how an afternoon disappears.
+     */
+    fun diagnose(context: Context): String {
+        if (!supported()) return "Not supported below Android 16."
+        val allowed = allowed(context)
+        val promotable = runCatching {
+            RestNotifications
+                .running(context, RestState(60, 90, System.currentTimeMillis() + 60_000, "Sample"))
+                .hasPromotableCharacteristics()
+        }.fold(onSuccess = { if (it) "yes" else "no" }, onFailure = { "unknown" })
+        return "Supported: yes · Allowed by you: ${if (allowed) "yes" else "no"} · " +
+            "Notification qualifies: $promotable"
+    }
+
+    /**
      * This app's notification settings, which is where the live updates switch
      * lives. There is a dedicated action for the switch itself, but not one
      * this SDK exposes by name, and guessing at a constant is how you ship a
