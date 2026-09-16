@@ -22,11 +22,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,7 +33,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -48,13 +45,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import com.workouttracker.rest.MAX_REST_SECONDS
-import com.workouttracker.rest.MIN_REST_SECONDS
 import com.workouttracker.rest.REST_PRESETS
 import com.workouttracker.rest.RestPrefs
 import com.workouttracker.rest.RestSettings
@@ -326,6 +320,7 @@ fun SettingsScreen() {
 
     if (showCustomRest) {
         RestLengthDialog(
+            title = "Default rest length",
             initialSeconds = rest.seconds,
             onDismiss = { showCustomRest = false },
             onConfirm = { seconds ->
@@ -334,69 +329,4 @@ fun SettingsScreen() {
             },
         )
     }
-}
-
-/** Types a rest length in minutes and seconds, for anything the chips do not cover. */
-@Composable
-private fun RestLengthDialog(
-    initialSeconds: Int,
-    onDismiss: () -> Unit,
-    onConfirm: (Int) -> Unit,
-) {
-    var minutes by remember { mutableStateOf((initialSeconds / 60).toString()) }
-    var seconds by remember { mutableStateOf((initialSeconds % 60).toString()) }
-    val total = (minutes.toIntOrNull() ?: 0) * 60 + (seconds.toIntOrNull() ?: 0)
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Rest length") },
-        text = {
-            Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NumberBox(
-                        value = minutes,
-                        label = "min",
-                        onChange = { minutes = it },
-                        modifier = Modifier.weight(1f),
-                    )
-                    NumberBox(
-                        value = seconds,
-                        label = "sec",
-                        onChange = { seconds = it },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Anything from ${formatCountdown(MIN_REST_SECONDS)} to " +
-                        "${formatCountdown(MAX_REST_SECONDS)}.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(total) }, enabled = total >= MIN_REST_SECONDS) {
-                Text("Set")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun NumberBox(
-    value: String,
-    label: String,
-    onChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = { raw -> onChange(raw.filter(Char::isDigit).take(2)) },
-        label = { Text(label) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = modifier,
-    )
 }

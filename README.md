@@ -29,9 +29,11 @@ automatic background sync to a private folder in your Google Drive.
 - **Rest timer** — starts on its own when you tick a set off, counts down in a
   bar at the bottom of the screen, and buzzes when the rest is up. Adjustable
   by 15 seconds either way, skippable, and set to any length you like — or
-  switched off — in Settings. It runs in the app process rather than as an
-  alarm, so it needs no exact-alarm permission but does not survive Android
-  killing the app mid-rest.
+  switched off — in Settings. Individual exercises can override that from the
+  timer icon on their screen, because deadlifts need longer than curls; the
+  override syncs, and clearing it goes back to the default. It runs in the app
+  process rather than as an alarm, so it needs no exact-alarm permission but
+  does not survive Android killing the app mid-rest.
 - **Session list** — every workout with its set count and total volume
   (reps × weight), newest first.
 - **Auto sync to Google Drive** — see below.

@@ -82,6 +82,24 @@ data class CustomExercise(
     val deleted: Boolean = false,
 )
 
+/**
+ * Per-exercise overrides. Only rest length for now.
+ *
+ * Keyed by the lower-cased exercise name rather than a UUID, because the 92
+ * built-in exercises are not database rows and so have no id to hang this off.
+ * A name key also converges better: two devices that set a rest for "Deadlift"
+ * independently end up editing one row instead of creating two.
+ */
+@Serializable
+@Entity(tableName = "exercise_settings")
+data class ExerciseSettings(
+    /** Lower-cased, so the same lift typed two ways is one exercise. */
+    @PrimaryKey val exercise: String,
+    val restSeconds: Int,
+    val updatedAt: Long,
+    val deleted: Boolean = false,
+)
+
 /** List-screen projection: a workout plus its aggregates, computed in SQL. */
 data class WorkoutSummary(
     val id: String,

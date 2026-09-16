@@ -14,13 +14,16 @@ data class Snapshot(
      * custom exercises existed, still decodes.
      */
     val customExercises: List<CustomExercise> = emptyList(),
+    /** Per-exercise overrides. Defaulted so older snapshots still decode. */
+    val exerciseSettings: List<ExerciseSettings> = emptyList(),
 ) {
     companion object {
         /**
          * 1: workouts and sets.
          * 2: sets carry a muscle group, and custom exercises are included.
          * 3: sets can be ticked off as completed.
+         * 4: exercises can carry their own rest length.
          */
-        const val CURRENT_VERSION = 3
+        const val CURRENT_VERSION = 4
     }
 }

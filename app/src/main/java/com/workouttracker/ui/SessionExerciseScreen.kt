@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -54,6 +55,8 @@ import androidx.lifecycle.viewModelScope
 import com.workouttracker.data.SetEntry
 import com.workouttracker.data.SetWithSession
 import com.workouttracker.data.WorkoutRepository
+import com.workouttracker.rest.RestPrefs
+import com.workouttracker.rest.RestSettings
 import com.workouttracker.rest.RestTimer
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
@@ -101,8 +104,12 @@ fun describeSets(sets: List<SetWithSession>, limit: Int = 4): String {
 class SessionExerciseViewModel(
     private val repository: WorkoutRepository,
     private val restTimer: RestTimer,
+    restPrefs: RestPrefs,
     private val workoutId: String,
 ) : ViewModel() {
+
+    /** The app-wide rest settings, for showing what "the default" currently is. */
+    val restDefault: StateFlow<RestSettings> = restPrefs.state
 
     /** Every set in the session, not just this exercise's: the order of the
      * whole list is what decides which exercise comes next. */
@@ -114,6 +121,16 @@ class SessionExerciseViewModel(
         repository.observePreviousSets(exercise, workoutId)
             .map(::previousSession)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** This exercise's own rest length, or null when it uses the default. */
+    fun restSecondsOf(exercise: String): StateFlow<Int?> =
+        repository.observeRestSeconds(exercise)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** [seconds] null clears the override and goes back to the default. */
+    fun setRestSeconds(exercise: String, seconds: Int?) {
+        viewModelScope.launch { repository.setRestSeconds(exercise, seconds) }
+    }
 
     fun addSet(exercise: String) {
         viewModelScope.launch { repository.addSet(workoutId, exercise) }
@@ -127,12 +144,14 @@ class SessionExerciseViewModel(
         viewModelScope.launch { repository.copyLastSession(workoutId, exercise) }
     }
 
-    fun setCompleted(id: String, completed: Boolean) {
+    fun setCompleted(id: String, exercise: String, completed: Boolean) {
         viewModelScope.launch {
             repository.setCompleted(id, completed)
             // Ticking a set off is the moment rest begins. Adding one is
-            // planning ahead, which should not start anything.
-            if (completed) restTimer.startIfEnabled()
+            // planning ahead, which should not start anything. Read the
+            // exercise's own length here rather than from a cached flow, so a
+            // rest just changed in the dialog applies to this very set.
+            if (completed) restTimer.startIfEnabled(repository.restSecondsFor(exercise))
         }
     }
 
@@ -156,11 +175,15 @@ fun SessionExerciseScreen(
     onOpenExercise: (String) -> Unit,
 ) {
     val viewModel = appViewModel(key = workoutId) { app ->
-        SessionExerciseViewModel(app.repository, app.restTimer, workoutId)
+        SessionExerciseViewModel(app.repository, app.restTimer, app.restPrefs, workoutId)
     }
     val allSets by viewModel.sets.collectAsStateWithLifecycle()
     val previous by remember(exercise) { viewModel.previousSessionOf(exercise) }
         .collectAsStateWithLifecycle()
+    val restOverride by remember(exercise) { viewModel.restSecondsOf(exercise) }
+        .collectAsStateWithLifecycle()
+    val restDefault by viewModel.restDefault.collectAsStateWithLifecycle()
+    var showRestDialog by remember { mutableStateOf(false) }
 
     val sets = remember(allSets, exercise) { allSets.filter { it.exercise == exercise } }
     val next = remember(allSets, exercise) { nextExercise(allSets, exercise) }
@@ -176,6 +199,9 @@ fun SessionExerciseScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showRestDialog = true }) {
+                        Icon(Icons.Outlined.Timer, contentDescription = "Rest length for $exercise")
+                    }
                     IconButton(onClick = { onOpenHistory(exercise) }) {
                         Icon(Icons.Outlined.History, contentDescription = "History for $exercise")
                     }
@@ -194,7 +220,7 @@ fun SessionExerciseScreen(
                     set = set,
                     canMoveUp = index > 0,
                     canMoveDown = index < sets.lastIndex,
-                    onCompleted = { done -> viewModel.setCompleted(set.id, done) },
+                    onCompleted = { done -> viewModel.setCompleted(set.id, exercise, done) },
                     onUpdate = { reps, weight -> viewModel.updateSet(set, reps, weight) },
                     onMove = { delta -> viewModel.moveSet(set.id, delta) },
                     onDelete = { viewModel.deleteSet(set.id) },
@@ -228,6 +254,31 @@ fun SessionExerciseScreen(
                 }
             }
         }
+    }
+
+    if (showRestDialog) {
+        RestLengthDialog(
+            title = "Rest for $exercise",
+            initialSeconds = restOverride ?: restDefault.seconds,
+            supporting = if (restOverride == null) {
+                "Currently using the default, ${formatCountdown(restDefault.seconds)}."
+            } else {
+                "Set for this exercise only. Every other exercise uses the " +
+                    "default, ${formatCountdown(restDefault.seconds)}."
+            },
+            onDismiss = { showRestDialog = false },
+            onConfirm = { seconds ->
+                viewModel.setRestSeconds(exercise, seconds)
+                showRestDialog = false
+            },
+            onClear = restOverride?.let {
+                {
+                    viewModel.setRestSeconds(exercise, null)
+                    showRestDialog = false
+                }
+            },
+            clearLabel = "Use the default instead",
+        )
     }
 }
 

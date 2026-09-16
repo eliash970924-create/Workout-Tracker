@@ -38,6 +38,7 @@ class SnapshotCompatibilityTest {
         // No muscle group was recorded back then.
         assertEquals(MuscleGroup.OTHER.name, snapshot.sets.single().muscleGroup)
         assertTrue(snapshot.customExercises.isEmpty())
+        assertTrue(snapshot.exerciseSettings.isEmpty())
         // The field default is false; merge is what decides an old snapshot's
         // sets were done, because only merge knows the snapshot's version.
         assertFalse(snapshot.sets.single().completed)
@@ -56,6 +57,9 @@ class SnapshotCompatibilityTest {
             ),
             customExercises = listOf(
                 CustomExercise("c1", "Elias Special", MuscleGroup.CORE.name, updatedAt = 1)
+            ),
+            exerciseSettings = listOf(
+                ExerciseSettings("deadlift", restSeconds = 210, updatedAt = 1)
             ),
         )
 

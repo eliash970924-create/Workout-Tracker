@@ -48,10 +48,14 @@ class RestTimer(
 
     private var countdown: Job? = null
 
-    /** Called after a set is logged. Does nothing unless the user turned it on. */
-    fun startIfEnabled() {
+    /**
+     * Called after a set is ticked off. Does nothing unless the user turned the
+     * timer on; [seconds] is the exercise's own rest length, or null to use the
+     * default from Settings.
+     */
+    fun startIfEnabled(seconds: Int? = null) {
         val settings = prefs.state.value
-        if (settings.enabled) start(settings.seconds)
+        if (settings.enabled) start(seconds ?: settings.seconds)
     }
 
     fun start(seconds: Int) {

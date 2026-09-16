@@ -48,3 +48,23 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         db.execSQL("UPDATE exercise_sets SET completed = 1")
     }
 }
+
+/**
+ * Adds per-exercise settings.
+ *
+ * Nothing to backfill: an exercise with no row here simply uses the rest
+ * length from Settings, which is what every exercise did before.
+ */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Must match the entity exactly, defaults included, or Room rejects the
+        // migrated schema on open. `deleted` carries no default because
+        // ExerciseSettings.deleted declares none.
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `exercise_settings` (" +
+                "`exercise` TEXT NOT NULL, `restSeconds` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`exercise`))"
+        )
+    }
+}

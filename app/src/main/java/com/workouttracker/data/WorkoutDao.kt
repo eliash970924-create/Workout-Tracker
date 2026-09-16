@@ -157,4 +157,21 @@ interface WorkoutDao {
 
     @Upsert
     suspend fun upsertCustomExercise(exercise: CustomExercise)
+
+    // --- per-exercise settings ---
+
+    @Query("SELECT * FROM exercise_settings WHERE exercise = :exercise AND deleted = 0")
+    fun observeExerciseSettings(exercise: String): Flow<ExerciseSettings?>
+
+    @Query("SELECT * FROM exercise_settings WHERE exercise = :exercise AND deleted = 0")
+    suspend fun findExerciseSettings(exercise: String): ExerciseSettings?
+
+    @Query("SELECT * FROM exercise_settings WHERE exercise = :exercise")
+    suspend fun findExerciseSettingsRow(exercise: String): ExerciseSettings?
+
+    @Query("SELECT * FROM exercise_settings")
+    suspend fun allExerciseSettings(): List<ExerciseSettings>
+
+    @Upsert
+    suspend fun upsertExerciseSettings(settings: ExerciseSettings)
 }

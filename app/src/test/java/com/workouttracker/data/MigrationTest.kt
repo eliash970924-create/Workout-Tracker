@@ -73,7 +73,7 @@ class MigrationTest {
         // Opening with Room runs both migrations in turn, then validates the
         // schema against the entities.
         val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
         try {
             val sets = db.workoutDao().allSets().associateBy { it.id }
@@ -96,8 +96,9 @@ class MigrationTest {
             assertEquals("Chest day", summaries.single().name)
             assertEquals(2, summaries.single().setCount)
 
-            // The new table exists and is usable.
+            // The new tables exist and are usable.
             assertEquals(emptyList<CustomExercise>(), db.workoutDao().allCustomExercises())
+            assertEquals(emptyList<ExerciseSettings>(), db.workoutDao().allExerciseSettings())
         } finally {
             db.close()
             context.deleteDatabase(name)

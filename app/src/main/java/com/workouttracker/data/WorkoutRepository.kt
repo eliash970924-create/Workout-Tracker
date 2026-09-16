@@ -2,6 +2,7 @@ package com.workouttracker.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.util.UUID
 
@@ -262,6 +263,37 @@ class WorkoutRepository(
         }
     }
 
+    // --- per-exercise settings ---
+
+    /** Rest length for [exercise], or null when it just uses the default. */
+    fun observeRestSeconds(exercise: String): Flow<Int?> =
+        dao.observeExerciseSettings(exercise.key()).map { it?.restSeconds }
+
+    suspend fun restSecondsFor(exercise: String): Int? =
+        dao.findExerciseSettings(exercise.key())?.restSeconds
+
+    /**
+     * Sets this exercise's own rest length, or clears it with null so it falls
+     * back to the default. Clearing tombstones rather than deletes, so another
+     * device does not re-create the override on the next sync.
+     */
+    suspend fun setRestSeconds(exercise: String, seconds: Int?) {
+        val key = exercise.key()
+        if (seconds == null) {
+            val existing = dao.findExerciseSettingsRow(key) ?: return
+            if (existing.deleted) return
+            dao.upsertExerciseSettings(existing.copy(deleted = true, updatedAt = now()))
+        } else {
+            dao.upsertExerciseSettings(
+                ExerciseSettings(exercise = key, restSeconds = seconds, updatedAt = now())
+            )
+        }
+        syncTrigger.onLocalChange()
+    }
+
+    /** Exercise names are user-typed; the key is what makes them one row. */
+    private fun String.key(): String = trim().lowercase()
+
     // --- sync support ---
 
     suspend fun snapshot(): Snapshot = db.withTransaction {
@@ -270,6 +302,7 @@ class WorkoutRepository(
             workouts = dao.allWorkouts(),
             sets = dao.allSets(),
             customExercises = dao.allCustomExercises(),
+            exerciseSettings = dao.allExerciseSettings(),
         )
     }
 
@@ -307,6 +340,13 @@ class WorkoutRepository(
             val local = dao.findCustomExercise(remote.id)
             if (local == null || local.updatedAt < remote.updatedAt) {
                 dao.upsertCustomExercise(remote)
+                applied++
+            }
+        }
+        for (remote in snapshot.exerciseSettings) {
+            val local = dao.findExerciseSettingsRow(remote.exercise)
+            if (local == null || local.updatedAt < remote.updatedAt) {
+                dao.upsertExerciseSettings(remote)
                 applied++
             }
         }
