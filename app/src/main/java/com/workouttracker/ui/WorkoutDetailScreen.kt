@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
@@ -58,10 +59,14 @@ import androidx.lifecycle.viewModelScope
 import com.workouttracker.data.CustomExercise
 import com.workouttracker.data.ExerciseMetric
 import com.workouttracker.data.MuscleGroup
+import com.workouttracker.data.SessionTemplate
 import com.workouttracker.data.SetEntry
 import com.workouttracker.data.Workout
 import com.workouttracker.data.WorkoutRepository
+import com.workouttracker.data.isDefaultWorkoutName
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -82,6 +87,11 @@ class WorkoutDetailViewModel(
 
     val customExercises: StateFlow<List<CustomExercise>> = repository.observeCustomExercises()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _startFrom = MutableStateFlow<List<SessionTemplate>>(emptyList())
+
+    /** Earlier sessions offered as a starting point; empty until asked for. */
+    val startFrom: StateFlow<List<SessionTemplate>> = _startFrom.asStateFlow()
 
     /** Exercises the user has re-measured, so the picker can say so. */
     val metricOverrides: StateFlow<Map<String, ExerciseMetric>> =
@@ -122,6 +132,25 @@ class WorkoutDetailViewModel(
         viewModelScope.launch { repository.reorderExercises(workoutId, order) }
     }
 
+    fun loadStartFrom() {
+        viewModelScope.launch { _startFrom.value = repository.recentSessions(workoutId) }
+    }
+
+    /**
+     * Fills this session with [source]'s exercises and sets, and takes its name
+     * too -- but only while this session is still called whatever it was
+     * created as. A name typed by hand is never overwritten.
+     */
+    fun startFrom(source: SessionTemplate) {
+        viewModelScope.launch {
+            repository.copySession(workoutId, source.id)
+            val current = workout.value ?: return@launch
+            if (isDefaultWorkoutName(current.name)) {
+                repository.updateWorkout(current.copy(name = source.name))
+            }
+        }
+    }
+
     fun deleteWorkout(onDeleted: () -> Unit) {
         viewModelScope.launch {
             repository.deleteWorkout(workoutId)
@@ -159,6 +188,8 @@ fun WorkoutDetailScreen(
     var showAddExercise by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<String?>(null) }
+    var showStartFrom by remember { mutableStateOf(false) }
+    val startFromSessions by viewModel.startFrom.collectAsStateWithLifecycle()
 
     val current = workout
     Scaffold(
@@ -258,6 +289,24 @@ fun WorkoutDetailScreen(
                     Text("Add exercise")
                 }
             }
+            // Offered while the session is still empty, which is when building
+            // it from scratch is the thing you were about to do. Once there is
+            // something here, copying a whole session on top of it is not.
+            if (sets.isEmpty()) {
+                item {
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.loadStartFrom()
+                            showStartFrom = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Start from a previous session")
+                    }
+                }
+            }
             item {
                 DraftTextField(
                     value = current.notes,
@@ -309,6 +358,17 @@ fun WorkoutDetailScreen(
             onCreate = { name, group, metric ->
                 viewModel.createExerciseAndAddSet(name, group, metric)
                 showAddExercise = false
+            },
+        )
+    }
+
+    if (showStartFrom) {
+        StartFromDialog(
+            sessions = startFromSessions,
+            onDismiss = { showStartFrom = false },
+            onPick = { session ->
+                viewModel.startFrom(session)
+                showStartFrom = false
             },
         )
     }

@@ -153,6 +153,22 @@ data class ExerciseHistoryEntry(
     @ColumnInfo(name = "bestMeters") val bestMeters: Double,
 )
 
+/**
+ * An earlier session offered as a starting point for a new one.
+ *
+ * Assembled in the repository rather than projected straight out of SQL: the
+ * exercise list wants to be in session order and de-duplicated, which is a
+ * GROUP_CONCAT over an ordered subquery in SQLite and a one-liner in Kotlin.
+ */
+data class SessionTemplate(
+    val id: String,
+    val date: Long,
+    val name: String,
+    val setCount: Int,
+    /** Exercise names in the order the session does them. */
+    val exercises: List<String>,
+)
+
 /** A set together with the session it belongs to, for per-exercise history. */
 data class SetWithSession(
     val id: String,

@@ -32,6 +32,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.workouttracker.data.WorkoutRepository
+import com.workouttracker.data.defaultWorkoutName
 import com.workouttracker.data.WorkoutSummary
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -47,13 +48,12 @@ class WorkoutListViewModel(private val repository: WorkoutRepository) : ViewMode
     /** Creates an empty session for today and hands back its id to navigate to. */
     fun createWorkout(onCreated: (String) -> Unit) {
         viewModelScope.launch {
-            onCreated(repository.createWorkout(name = defaultName(), date = LocalDate.now()))
+            val today = LocalDate.now()
+            // The name lives in the data layer now, because starting a session
+            // from an earlier one has to know whether the name it would
+            // overwrite was chosen by anyone.
+            onCreated(repository.createWorkout(name = defaultWorkoutName(today), date = today))
         }
-    }
-
-    private fun defaultName(): String = when (LocalDate.now().dayOfWeek.value) {
-        6, 7 -> "Weekend session"
-        else -> "Workout"
     }
 }
 

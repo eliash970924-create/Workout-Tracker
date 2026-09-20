@@ -97,6 +97,35 @@ interface WorkoutDao {
     )
     fun observePreviousSets(exercise: String, excludeWorkoutId: String): Flow<List<SetWithSession>>
 
+    /**
+     * Recent sessions that actually have something in them, newest first, for
+     * offering as a starting point. The join drops empty sessions, which there
+     * would be nothing to copy from.
+     */
+    @Query(
+        """
+        SELECT w.id FROM workouts w
+        JOIN exercise_sets s ON s.workoutId = w.id AND s.deleted = 0
+        WHERE w.deleted = 0 AND w.id <> :excludeWorkoutId
+        GROUP BY w.id
+        ORDER BY w.date DESC, w.updatedAt DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun recentWorkoutIds(excludeWorkoutId: String, limit: Int): List<String>
+
+    @Query("SELECT * FROM workouts WHERE id IN (:ids)")
+    suspend fun workoutsByIds(ids: List<String>): List<Workout>
+
+    @Query(
+        """
+        SELECT * FROM exercise_sets
+        WHERE workoutId IN (:ids) AND deleted = 0
+        ORDER BY position ASC
+        """
+    )
+    suspend fun setsOfWorkouts(ids: List<String>): List<SetEntry>
+
     @Upsert
     suspend fun upsertWorkout(workout: Workout)
 

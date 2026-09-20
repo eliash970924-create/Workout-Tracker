@@ -11,6 +11,23 @@ fun interface SyncTrigger {
     fun onLocalChange()
 }
 
+private val DEFAULT_WORKOUT_NAMES = setOf("Workout", "Weekend session")
+
+/** What a session is called before anyone names it. */
+fun defaultWorkoutName(date: LocalDate = LocalDate.now()): String =
+    when (date.dayOfWeek.value) {
+        6, 7 -> "Weekend session"
+        else -> "Workout"
+    }
+
+/**
+ * True while a session still carries a name nobody chose, which is what makes
+ * it safe to rename it after the session it was started from. Typed names are
+ * left alone even if they happen to look unremarkable.
+ */
+fun isDefaultWorkoutName(name: String): Boolean =
+    name.isBlank() || name.trim() in DEFAULT_WORKOUT_NAMES
+
 /**
  * The app's single entry point to stored data.
  *
@@ -260,6 +277,67 @@ class WorkoutRepository(
             }
         }
         syncTrigger.onLocalChange()
+    }
+
+    /**
+     * Earlier sessions worth starting a new one from, newest first.
+     *
+     * A one-shot read rather than a flow: this is only ever wanted the moment
+     * the picker opens, and observing every set of the last twenty sessions to
+     * keep a dialog fresh would be a lot of work for nothing.
+     */
+    suspend fun recentSessions(excludeWorkoutId: String, limit: Int = 20): List<SessionTemplate> =
+        db.withTransaction {
+            val ids = dao.recentWorkoutIds(excludeWorkoutId, limit)
+            if (ids.isEmpty()) return@withTransaction emptyList()
+            val byId = dao.workoutsByIds(ids).associateBy { it.id }
+            // Sets arrive in position order, so first appearance is the order
+            // the session actually did them in.
+            val setsByWorkout = dao.setsOfWorkouts(ids).groupBy { it.workoutId }
+            // ids carries the recency order; the lookups above do not.
+            ids.mapNotNull { id ->
+                val workout = byId[id] ?: return@mapNotNull null
+                val sets = setsByWorkout[id].orEmpty()
+                SessionTemplate(
+                    id = id,
+                    date = workout.date,
+                    name = workout.name,
+                    setCount = sets.size,
+                    exercises = sets.map(SetEntry::exercise).distinct(),
+                )
+            }
+        }
+
+    /**
+     * Appends every exercise and set of [sourceWorkoutId] to [workoutId] as a
+     * plan to work through: the same exercises with the same numbers, none of
+     * them ticked off. Returns how many sets were copied.
+     *
+     * Appends rather than replaces, so starting from a session is one more
+     * thing you can do to a session in progress rather than a first move only.
+     */
+    suspend fun copySession(workoutId: String, sourceWorkoutId: String): Int {
+        if (workoutId == sourceWorkoutId) return 0
+        val copied = db.withTransaction {
+            val template = dao.setsOf(sourceWorkoutId)
+            if (template.isEmpty()) return@withTransaction 0
+            var position = dao.maxPosition(workoutId)
+            for (set in template) {
+                dao.upsertSet(
+                    set.copy(
+                        id = UUID.randomUUID().toString(),
+                        workoutId = workoutId,
+                        position = ++position,
+                        // What you did then is not what you have done now.
+                        completed = false,
+                        updatedAt = now(),
+                    )
+                )
+            }
+            template.size
+        }
+        if (copied > 0) syncTrigger.onLocalChange()
+        return copied
     }
 
     /**
