@@ -499,6 +499,9 @@ class WorkoutRepository(
     /** Exercise names are user-typed; the key is what makes them one row. */
     private fun String.key(): String = trim().lowercase()
 
+    /** Every live set with its session, oldest first, for the CSV export. */
+    suspend fun exportRows(): List<ExportRow> = dao.exportRows()
+
     // --- sync support ---
 
     suspend fun snapshot(): Snapshot = db.withTransaction {

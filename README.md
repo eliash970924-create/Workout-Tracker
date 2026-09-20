@@ -23,6 +23,11 @@ automatic background sync to a private folder in your Google Drive.
   and the progress chart each read in the right units. The built-in exercises
   come with a sensible choice; the ruler icon on an exercise's screen changes
   it, and a new custom exercise picks one when you create it.
+- **Start from a previous session** — a new session offers the ones you have
+  already logged, newest first, each listed with its exercises. Picking one
+  copies the whole thing — exercises, order, reps, weights, durations,
+  distances — as a plan with nothing ticked off, and takes that session's name
+  unless you have already typed one. Offered only while the session is empty.
 - **Copy last time** — inside an exercise, what you did in its last session,
   and one tap to start from it. Copying replaces the sets you have not ticked
   yet and leaves the ticked ones alone, so it is safe mid-exercise.
@@ -34,6 +39,10 @@ automatic background sync to a private folder in your Google Drive.
 - **History per exercise** — every exercise you have trained, filterable by
   muscle group. Open one for its sessions, best set and total — volume for a
   lift, distance for a run, time for a hold.
+- **Export** — Settings writes your whole log to a CSV wherever you point the
+  file picker: one row per set, with raw numbers rather than formatted ones so
+  a spreadsheet can sum and chart them. Worth having, because the Drive backup
+  below lives in a folder you cannot browse.
 - **Progress chart** — per exercise, a line across sessions of whichever
   measures suit it: top set or volume for a lift, longest or total time for a
   hold, furthest or total distance for cardio. Points are spaced by date, so a
@@ -95,6 +104,8 @@ The snapshot lives in Drive's `appDataFolder` — a hidden per-app area. The app
 requests only the `drive.appdata` scope, so it cannot see any of your other
 Drive files, and you cannot browse the backup from the Drive UI (it is removed
 if you uninstall the app or disconnect it from your Google account settings).
+That privacy cuts both ways, which is what the CSV export in Settings is for:
+it is the copy of your log you can actually open.
 
 ## Building
 

@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -50,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.workouttracker.data.WorkoutRepository
+import com.workouttracker.data.buildCsv
 import com.workouttracker.rest.LiveUpdates
 import com.workouttracker.rest.REST_PRESETS
 import com.workouttracker.rest.RestPrefs
@@ -60,17 +63,63 @@ import com.workouttracker.sync.SyncManager
 import com.workouttracker.sync.SyncPrefs
 import com.workouttracker.sync.SyncScheduler
 import com.workouttracker.sync.SyncState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
+import java.time.LocalDate
+
+/** What came of the last export, for the line under the button. */
+sealed interface ExportResult {
+    data class Saved(val sets: Int) : ExportResult
+    data class Failed(val reason: String) : ExportResult
+}
 
 class SettingsViewModel(
     private val context: Context,
     private val prefs: SyncPrefs,
     private val restPrefs: RestPrefs,
     private val syncManager: SyncManager,
+    private val repository: WorkoutRepository,
 ) : ViewModel() {
 
     val state: StateFlow<SyncState> = prefs.state
+
+    private val _export = MutableStateFlow<ExportResult?>(null)
+
+    /** Null until an export has been tried in this sitting. */
+    val export: StateFlow<ExportResult?> = _export.asStateFlow()
+
+    /** The name offered in the file picker, dated so exports do not collide. */
+    fun exportFileName(): String = "workout-log-${LocalDate.now()}.csv"
+
+    /**
+     * Writes the whole log to [uri], which the system file picker has already
+     * created wherever the user chose to put it.
+     *
+     * Everything is caught: a picker can hand back a location that has since
+     * gone away, a full disk, or a provider that refuses the write, and none of
+     * those are worth crashing over when the answer is "it did not save".
+     */
+    fun exportTo(uri: Uri) {
+        viewModelScope.launch {
+            _export.value = try {
+                val rows = repository.exportRows()
+                val csv = buildCsv(rows)
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { stream ->
+                        stream.write(csv.toByteArray(Charsets.UTF_8))
+                    } ?: throw IOException("that location could not be opened")
+                }
+                ExportResult.Saved(rows.size)
+            } catch (e: Exception) {
+                ExportResult.Failed(e.message ?: e.javaClass.simpleName)
+            }
+        }
+    }
 
     val rest: StateFlow<RestSettings> = restPrefs.state
 
@@ -120,10 +169,11 @@ class SettingsViewModel(
 @Composable
 fun SettingsScreen() {
     val viewModel = appViewModel { app ->
-        SettingsViewModel(app, app.syncPrefs, app.restPrefs, app.syncManager)
+        SettingsViewModel(app, app.syncPrefs, app.restPrefs, app.syncManager, app.repository)
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val rest by viewModel.rest.collectAsStateWithLifecycle()
+    val export by viewModel.export.collectAsStateWithLifecycle()
     var showCustomRest by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -132,6 +182,13 @@ fun SettingsScreen() {
     ) { result ->
         viewModel.onConsentResult(result.resultCode == Activity.RESULT_OK, result.data)
     }
+
+    // The system picker rather than a share sheet: the file is written where
+    // the user chose to put it -- Drive, Downloads, wherever -- which is the
+    // whole point of an export. It also means no FileProvider to configure.
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri -> uri?.let(viewModel::exportTo) }
 
     // Asked for when the timer is switched on rather than at launch, so the
     // prompt arrives attached to the feature that needs it. Refusing it costs
@@ -288,6 +345,45 @@ fun SettingsScreen() {
                                     label = { Text(interval.label) },
                                 )
                             }
+                        }
+                    }
+                }
+            }
+
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Your log", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Every set you have logged, as a spreadsheet. The Drive " +
+                            "backup lives in a private folder you cannot browse, " +
+                            "so this is how to read your own data outside the app.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { exportLauncher.launch(viewModel.exportFileName()) },
+                    ) {
+                        Text("Export as CSV")
+                    }
+                    when (val result = export) {
+                        null -> Unit
+                        is ExportResult.Saved -> {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                if (result.sets == 1) "Exported 1 set."
+                                else "Exported ${result.sets} sets.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        is ExportResult.Failed -> {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Could not export: ${result.reason}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
                         }
                     }
                 }

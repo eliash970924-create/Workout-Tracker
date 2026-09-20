@@ -184,6 +184,29 @@ interface WorkoutDao {
     )
     fun observeSetsForExercise(exercise: String): Flow<List<SetWithSession>>
 
+    // --- export ---
+
+    /**
+     * Every live set with its session, oldest first, for the CSV export.
+     *
+     * Ordered by workout as well as by date so two sessions on the same day
+     * come out one after the other rather than interleaved.
+     */
+    @Query(
+        """
+        SELECT s.workoutId AS workoutId, w.date AS date, w.name AS workoutName,
+               w.notes AS workoutNotes, s.exercise AS exercise,
+               s.muscleGroup AS muscleGroup, s.metric AS metric, s.reps AS reps,
+               s.weightKg AS weightKg, s.seconds AS seconds, s.meters AS meters,
+               s.completed AS completed
+        FROM exercise_sets s
+        JOIN workouts w ON w.id = s.workoutId
+        WHERE s.deleted = 0 AND w.deleted = 0
+        ORDER BY w.date ASC, s.workoutId ASC, s.position ASC
+        """
+    )
+    suspend fun exportRows(): List<ExportRow>
+
     // --- custom exercises ---
 
     @Query("SELECT * FROM custom_exercises WHERE deleted = 0 ORDER BY name ASC")

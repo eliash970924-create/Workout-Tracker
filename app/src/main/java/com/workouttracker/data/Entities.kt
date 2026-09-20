@@ -169,6 +169,22 @@ data class SessionTemplate(
     val exercises: List<String>,
 )
 
+/** One line of the CSV export: a set, flattened together with its session. */
+data class ExportRow(
+    @ColumnInfo(name = "workoutId") val workoutId: String,
+    val date: Long,
+    @ColumnInfo(name = "workoutName") val workoutName: String,
+    @ColumnInfo(name = "workoutNotes") val workoutNotes: String,
+    val exercise: String,
+    val muscleGroup: String,
+    val metric: String,
+    val reps: Int,
+    val weightKg: Double,
+    val seconds: Int,
+    val meters: Double,
+    val completed: Boolean,
+)
+
 /** A set together with the session it belongs to, for per-exercise history. */
 data class SetWithSession(
     val id: String,
