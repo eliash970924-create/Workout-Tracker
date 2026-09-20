@@ -411,10 +411,9 @@ class WorkoutRepository(
             existing?.copy(deleted = false) ?: ExerciseSettings(exercise = key, updatedAt = 0)
         )
         val empty = updated.restSeconds == null && updated.metric == null
-        // Nothing to say, and nothing said before: writing a tombstone for a
-        // row that never existed would be pure sync noise.
-        if (empty && existing == null) return
-        if (empty && existing.deleted) return
+        // A tombstone for a row that never existed, or is already one, would be
+        // pure sync noise.
+        if (empty && (existing == null || existing.deleted)) return
         dao.upsertExerciseSettings(updated.copy(deleted = empty, updatedAt = now()))
         syncTrigger.onLocalChange()
     }
