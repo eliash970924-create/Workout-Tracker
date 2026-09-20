@@ -34,6 +34,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.workouttracker.data.ExerciseHistoryEntry
+import com.workouttracker.data.ExerciseMetric
 import com.workouttracker.data.MuscleGroup
 import com.workouttracker.data.WorkoutRepository
 import kotlinx.coroutines.flow.SharingStarted
@@ -115,11 +116,8 @@ private fun HistoryRow(entry: ExerciseHistoryEntry, onClick: () -> Unit) {
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
-                if (entry.bestWeight > 0) {
-                    Text(
-                        "${formatWeight(entry.bestWeight)} kg",
-                        style = MaterialTheme.typography.titleSmall,
-                    )
+                bestOf(entry)?.let {
+                    Text(it, style = MaterialTheme.typography.titleSmall)
                 }
                 Text(
                     if (entry.setCount == 1) "1 set" else "${entry.setCount} sets",
@@ -130,6 +128,21 @@ private fun HistoryRow(entry: ExerciseHistoryEntry, onClick: () -> Unit) {
         }
     }
 }
+
+/**
+ * The one number worth putting on the row, read by the metric this exercise is
+ * measured by now. Null when there is nothing to show -- a lift logged only at
+ * bodyweight has no best weight.
+ */
+private fun bestOf(entry: ExerciseHistoryEntry): String? =
+    when (ExerciseMetric.of(entry.metric)) {
+        ExerciseMetric.WEIGHT_REPS ->
+            entry.bestWeight.takeIf { it > 0 }?.let { "${formatWeight(it)} kg" }
+        ExerciseMetric.REPS -> entry.bestReps.takeIf { it > 0 }?.let { "$it reps" }
+        ExerciseMetric.TIME -> entry.bestSeconds.takeIf { it > 0 }?.let(::formatDuration)
+        ExerciseMetric.DISTANCE_TIME ->
+            entry.bestMeters.takeIf { it > 0 }?.let(::formatDistance)
+    }
 
 @Composable
 private fun EmptyHistory(modifier: Modifier = Modifier) {

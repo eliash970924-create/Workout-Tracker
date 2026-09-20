@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.workouttracker.data.ExerciseMetric
 import com.workouttracker.data.SetWithSession
 import com.workouttracker.data.WorkoutRepository
 import kotlinx.coroutines.flow.SharingStarted
@@ -59,11 +60,18 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
     // Sessions in the order the query returned them (newest first); groupBy
     // preserves first-encounter order, so no re-sorting is needed.
     val sessions = remember(sets) { sets.groupBy { it.workoutDate }.toList() }
-    val bestSet = remember(sets) { sets.maxByOrNull { it.weightKg } }
-    val totalVolume = remember(sets) { sets.sumOf { it.reps * it.weightKg } }
 
-    var metric by remember { mutableStateOf(ProgressMetric.TOP_SET) }
-    val points = remember(sets, metric) { progressPoints(sets, metric) }
+    // How this exercise is measured now, taken from its most recent set. An
+    // exercise recategorised part-way through has sets of both kinds, and the
+    // totals below are only meaningful under one of them.
+    val metric = remember(sets) {
+        ExerciseMetric.of(sets.firstOrNull()?.metric)
+    }
+    val measured = remember(sets, metric) { sets.filter { it.metric == metric.name } }
+
+    val options = remember(metric) { ProgressMetric.optionsFor(metric) }
+    var chart by remember(options) { mutableStateOf(options.first()) }
+    val points = remember(measured, chart) { progressPoints(measured, chart) }
 
     Scaffold(
         topBar = {
@@ -90,11 +98,8 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
                     ) {
                         Stat("Sessions", sessions.size.toString())
                         Stat("Sets", sets.size.toString())
-                        Stat(
-                            "Best set",
-                            bestSet?.let { "${formatWeight(it.weightKg)} kg × ${it.reps}" } ?: "—",
-                        )
-                        Stat("Volume", formatVolume(totalVolume))
+                        Stat("Best", bestOf(measured, metric))
+                        Stat(totalLabel(metric), totalOf(measured, metric))
                     }
                 }
             }
@@ -105,16 +110,16 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                ProgressMetric.entries.forEach { option ->
+                                options.forEach { option ->
                                     FilterChip(
-                                        selected = metric == option,
-                                        onClick = { metric = option },
+                                        selected = chart == option,
+                                        onClick = { chart = option },
                                         label = { Text(option.label) },
                                     )
                                 }
                             }
                             Spacer(Modifier.height(16.dp))
-                            ProgressChart(points = points, metric = metric)
+                            ProgressChart(points = points, metric = chart)
                         }
                     }
                 }
@@ -124,6 +129,30 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
             }
         }
     }
+}
+
+/** The best single set, phrased in whatever this exercise is measured by. */
+private fun bestOf(sets: List<SetWithSession>, metric: ExerciseMetric): String = when {
+    sets.isEmpty() -> "—"
+    metric == ExerciseMetric.WEIGHT_REPS -> sets.maxBy { it.weightKg }
+        .let { "${formatWeight(it.weightKg)} kg × ${it.reps}" }
+    metric == ExerciseMetric.REPS -> "${sets.maxOf { it.reps }} reps"
+    metric == ExerciseMetric.TIME -> formatDuration(sets.maxOf { it.seconds })
+    else -> formatDistance(sets.maxOf { it.meters })
+}
+
+private fun totalLabel(metric: ExerciseMetric): String = when (metric) {
+    ExerciseMetric.WEIGHT_REPS -> "Volume"
+    ExerciseMetric.REPS -> "Reps"
+    ExerciseMetric.TIME -> "Time"
+    ExerciseMetric.DISTANCE_TIME -> "Distance"
+}
+
+private fun totalOf(sets: List<SetWithSession>, metric: ExerciseMetric): String = when (metric) {
+    ExerciseMetric.WEIGHT_REPS -> formatVolume(sets.sumOf { it.reps * it.weightKg })
+    ExerciseMetric.REPS -> sets.sumOf { it.reps }.toString()
+    ExerciseMetric.TIME -> formatDuration(sets.sumOf { it.seconds })
+    ExerciseMetric.DISTANCE_TIME -> formatDistance(sets.sumOf { it.meters })
 }
 
 @Composable
@@ -158,10 +187,7 @@ private fun SessionCard(date: Long, name: String, sets: List<SetWithSession>) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(end = 12.dp),
                     )
-                    Text(
-                        "${set.reps} × ${formatWeight(set.weightKg)} kg",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    Text(describeSet(set), style = MaterialTheme.typography.bodyMedium)
                 }
             }
         }

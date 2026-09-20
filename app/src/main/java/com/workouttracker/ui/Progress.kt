@@ -20,12 +20,36 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import com.workouttracker.data.ExerciseMetric
 import com.workouttracker.data.SetWithSession
 
-/** What the progress line plots. */
+/**
+ * What the progress line plots.
+ *
+ * Which of these are on offer depends on the exercise: volume is reps times
+ * weight, which a stationary bike has neither of. [optionsFor] is the only
+ * thing that should decide, so a chart can never be asked for a number the
+ * sets underneath it do not carry.
+ */
 enum class ProgressMetric(val label: String) {
     TOP_SET("Top set"),
     VOLUME("Volume"),
+    BEST_REPS("Best set"),
+    TOTAL_REPS("Total reps"),
+    LONGEST("Longest"),
+    TOTAL_TIME("Total time"),
+    FURTHEST("Furthest"),
+    TOTAL_DISTANCE("Distance");
+
+    companion object {
+        /** The charts that make sense for an exercise measured this way. */
+        fun optionsFor(metric: ExerciseMetric): List<ProgressMetric> = when (metric) {
+            ExerciseMetric.WEIGHT_REPS -> listOf(TOP_SET, VOLUME)
+            ExerciseMetric.REPS -> listOf(BEST_REPS, TOTAL_REPS)
+            ExerciseMetric.TIME -> listOf(LONGEST, TOTAL_TIME)
+            ExerciseMetric.DISTANCE_TIME -> listOf(FURTHEST, TOTAL_DISTANCE, TOTAL_TIME)
+        }
+    }
 }
 
 data class ProgressPoint(val epochDay: Long, val value: Double)
@@ -43,11 +67,20 @@ fun progressPoints(sets: List<SetWithSession>, metric: ProgressMetric): List<Pro
 private fun ProgressMetric.measure(sets: List<SetWithSession>): Double = when (this) {
     ProgressMetric.TOP_SET -> sets.maxOf { it.weightKg }
     ProgressMetric.VOLUME -> sets.sumOf { it.reps * it.weightKg }
+    ProgressMetric.BEST_REPS -> sets.maxOf { it.reps.toDouble() }
+    ProgressMetric.TOTAL_REPS -> sets.sumOf { it.reps.toDouble() }
+    ProgressMetric.LONGEST -> sets.maxOf { it.seconds.toDouble() }
+    ProgressMetric.TOTAL_TIME -> sets.sumOf { it.seconds.toDouble() }
+    ProgressMetric.FURTHEST -> sets.maxOf { it.meters }
+    ProgressMetric.TOTAL_DISTANCE -> sets.sumOf { it.meters }
 }
 
 fun ProgressMetric.format(value: Double): String = when (this) {
     ProgressMetric.TOP_SET -> "${formatWeight(value)} kg"
     ProgressMetric.VOLUME -> formatVolume(value)
+    ProgressMetric.BEST_REPS, ProgressMetric.TOTAL_REPS -> "${value.toInt()} reps"
+    ProgressMetric.LONGEST, ProgressMetric.TOTAL_TIME -> formatDuration(value.toInt())
+    ProgressMetric.FURTHEST, ProgressMetric.TOTAL_DISTANCE -> formatDistance(value)
 }
 
 /**

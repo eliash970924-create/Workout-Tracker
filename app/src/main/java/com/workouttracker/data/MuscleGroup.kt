@@ -20,6 +20,7 @@ enum class MuscleGroup(val displayName: String) {
     CORE("Core"),
     FOREARMS("Forearms"),
     FULL_BODY("Full body"),
+    CARDIO("Cardio"),
     OTHER("Other");
 
     companion object {

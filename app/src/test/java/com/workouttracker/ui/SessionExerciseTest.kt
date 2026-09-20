@@ -1,5 +1,6 @@
 package com.workouttracker.ui
 
+import com.workouttracker.data.ExerciseMetric
 import com.workouttracker.data.SetEntry
 import com.workouttracker.data.SetWithSession
 import org.junit.Assert.assertEquals
@@ -94,6 +95,28 @@ class SessionExerciseTest {
         assertEquals(
             "5 × 100 kg, 3 × 110 kg",
             describeSets(listOf(past(30, 5, 100.0), past(30, 3, 110.0))),
+        )
+    }
+
+    @Test
+    fun `a set is described by the numbers it was logged with`() {
+        fun timed(seconds: Int) = past(30, 0, 0.0)
+            .copy(metric = ExerciseMetric.TIME.name, seconds = seconds)
+
+        assertEquals("1:30", describeSet(timed(90)))
+        assertEquals(
+            "12 reps",
+            describeSet(past(30, 12, 0.0).copy(metric = ExerciseMetric.REPS.name)),
+        )
+        assertEquals(
+            "5.2 km in 25:00",
+            describeSet(
+                past(30, 0, 0.0).copy(
+                    metric = ExerciseMetric.DISTANCE_TIME.name,
+                    seconds = 1500,
+                    meters = 5200.0,
+                )
+            ),
         )
     }
 

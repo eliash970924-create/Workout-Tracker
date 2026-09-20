@@ -21,8 +21,38 @@ fun formatDay(epochDay: Long, today: LocalDate = LocalDate.now()): String {
 }
 
 /** Drops the decimal point for whole numbers: 60.0 -> "60", 62.5 -> "62.5". */
-fun formatWeight(kg: Double): String =
-    if (kg % 1.0 == 0.0) kg.toLong().toString() else kg.toString()
+fun formatWeight(kg: Double): String = plain(kg)
+
+private fun plain(value: Double): String =
+    if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+
+/**
+ * "45 s", "1:30", "1:05:00" -- as long as it needs to be and no longer, so a
+ * plank does not read as a marathon.
+ */
+fun formatDuration(seconds: Int): String {
+    val total = seconds.coerceAtLeast(0)
+    val hours = total / 3600
+    val minutes = total % 3600 / 60
+    val rest = total % 60
+    return when {
+        hours > 0 -> String.format(Locale.US, "%d:%02d:%02d", hours, minutes, rest)
+        minutes > 0 -> String.format(Locale.US, "%d:%02d", minutes, rest)
+        else -> "$rest s"
+    }
+}
+
+/**
+ * Metres up to a kilometre, kilometres above it, to one decimal: 400 -> "400 m",
+ * 5200 -> "5.2 km". Distances are stored in metres but read in kilometres.
+ */
+fun formatDistance(meters: Double): String = when {
+    meters >= 1000 -> "${plain(Math.round(meters / 100.0) / 10.0)} km"
+    else -> "${plain(meters)} m"
+}
+
+/** Metres as the kilometres the user typed, for putting back in the field. */
+fun formatKilometres(meters: Double): String = plain(Math.round(meters) / 1000.0)
 
 fun formatVolume(kg: Double): String = when {
     kg >= 1000 -> String.format(Locale.US, "%.1ft", kg / 1000)

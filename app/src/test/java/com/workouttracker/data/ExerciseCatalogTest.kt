@@ -45,6 +45,34 @@ class ExerciseCatalogTest {
     }
 
     @Test
+    fun `cardio is offered, and asks for distance or time rather than kilos`() {
+        val cardio = ExerciseCatalog.all.filter { it.muscleGroup == MuscleGroup.CARDIO }
+
+        assertTrue("no cardio in the catalogue", cardio.isNotEmpty())
+        val weighted = cardio.filter { it.metric == ExerciseMetric.WEIGHT_REPS }
+        assertTrue("cardio measured in kilos: ${weighted.map { it.name }}", weighted.isEmpty())
+        assertEquals(ExerciseMetric.DISTANCE_TIME, ExerciseCatalog.metricFor("Stationary Bike"))
+        assertEquals(ExerciseMetric.TIME, ExerciseCatalog.metricFor("Jump Rope"))
+    }
+
+    @Test
+    fun `holds are timed and bodyweight sets are counted`() {
+        assertEquals(ExerciseMetric.TIME, ExerciseCatalog.metricFor("Plank"))
+        assertEquals(ExerciseMetric.TIME, ExerciseCatalog.metricFor("Wall Sit"))
+        assertEquals(ExerciseMetric.REPS, ExerciseCatalog.metricFor("Pull-Up"))
+        // A lift is still a lift: the default has to stay the common case.
+        assertEquals(ExerciseMetric.WEIGHT_REPS, ExerciseCatalog.metricFor("Deadlift"))
+        assertNull(ExerciseCatalog.metricFor("Elias Special"))
+    }
+
+    @Test
+    fun `stored metric names survive an unknown value`() {
+        assertEquals(ExerciseMetric.TIME, ExerciseMetric.of("TIME"))
+        assertEquals(ExerciseMetric.DEFAULT, ExerciseMetric.of("NOT_A_METRIC"))
+        assertEquals(ExerciseMetric.DEFAULT, ExerciseMetric.of(null))
+    }
+
+    @Test
     fun `group names are stable identifiers, not display text`() {
         // Storage uses name(); display uses displayName. Conflating them would
         // silently recategorise every logged set on a relabel.

@@ -3,6 +3,7 @@ package com.workouttracker.data
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,6 +43,30 @@ class SnapshotCompatibilityTest {
         // The field default is false; merge is what decides an old snapshot's
         // sets were done, because only merge knows the snapshot's version.
         assertFalse(snapshot.sets.single().completed)
+        // Nor any metric: version 5 is what introduced them, and the default
+        // is what everything logged before then actually was.
+        assertEquals(ExerciseMetric.WEIGHT_REPS.name, snapshot.sets.single().metric)
+        assertEquals(0, snapshot.sets.single().seconds)
+    }
+
+    @Test
+    fun `a version 4 rest length decodes now that the field is nullable`() {
+        val version4Json = """
+            {
+              "version": 4,
+              "exportedAt": 1700000000000,
+              "workouts": [],
+              "sets": [],
+              "exerciseSettings": [
+                {"exercise":"deadlift","restSeconds":210,"updatedAt":5,"deleted":false}
+              ]
+            }
+        """.trimIndent()
+
+        val snapshot = json.decodeFromString(Snapshot.serializer(), version4Json)
+
+        assertEquals(210, snapshot.exerciseSettings.single().restSeconds)
+        assertNull(snapshot.exerciseSettings.single().metric)
     }
 
     @Test

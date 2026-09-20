@@ -23,7 +23,9 @@ data class Snapshot(
          * 2: sets carry a muscle group, and custom exercises are included.
          * 3: sets can be ticked off as completed.
          * 4: exercises can carry their own rest length.
+         * 5: sets say how they were measured, and carry a duration and a
+         *    distance alongside reps and weight.
          */
-        const val CURRENT_VERSION = 4
+        const val CURRENT_VERSION = 5
     }
 }

@@ -58,6 +58,22 @@ data class SetEntry(
     @ColumnInfo(defaultValue = "OTHER")
     val muscleGroup: String = MuscleGroup.OTHER.name,
     /**
+     * [ExerciseMetric] name, denormalised for the same reason [muscleGroup]
+     * is, and with a second one of its own: the numbers below only make sense
+     * read together with the metric that was in force when they were entered.
+     * Re-reading it from the exercise would turn a logged 5 x 100 kg into a
+     * 5 metre bike ride the moment the exercise was recategorised.
+     */
+    @ColumnInfo(defaultValue = "WEIGHT_REPS")
+    val metric: String = ExerciseMetric.DEFAULT.name,
+    /** Duration, for a timed hold or a cardio effort. */
+    @ColumnInfo(defaultValue = "0")
+    val seconds: Int = 0,
+    /** Distance covered, in metres. Entered in kilometres, stored in metres
+     * so a 400 m interval is a whole number rather than 0.4. */
+    @ColumnInfo(defaultValue = "0")
+    val meters: Double = 0.0,
+    /**
      * Ticked off during the session. Sets are planned first and completed as
      * they are done, so a set can exist without having been performed yet.
      */
@@ -83,19 +99,26 @@ data class CustomExercise(
 )
 
 /**
- * Per-exercise overrides. Only rest length for now.
+ * Per-exercise overrides: rest length, and how the exercise is measured.
  *
- * Keyed by the lower-cased exercise name rather than a UUID, because the 92
+ * Keyed by the lower-cased exercise name rather than a UUID, because the
  * built-in exercises are not database rows and so have no id to hang this off.
  * A name key also converges better: two devices that set a rest for "Deadlift"
  * independently end up editing one row instead of creating two.
+ *
+ * Both fields are nullable and independent: null means "whatever the default
+ * for this exercise is", so setting one does not commit the user to the other.
+ * A row with both null carries nothing and is tombstoned instead.
  */
 @Serializable
 @Entity(tableName = "exercise_settings")
 data class ExerciseSettings(
     /** Lower-cased, so the same lift typed two ways is one exercise. */
     @PrimaryKey val exercise: String,
-    val restSeconds: Int,
+    /** Null uses the app-wide rest length from Settings. */
+    val restSeconds: Int? = null,
+    /** [ExerciseMetric] name. Null uses the catalogue's choice for this exercise. */
+    val metric: String? = null,
     val updatedAt: Long,
     val deleted: Boolean = false,
 )
@@ -106,16 +129,28 @@ data class WorkoutSummary(
     val date: Long,
     val name: String,
     @ColumnInfo(name = "setCount") val setCount: Int,
+    /** Reps times weight, which only the weighted sets contribute to. */
     @ColumnInfo(name = "volume") val volume: Double,
+    @ColumnInfo(name = "totalSeconds") val totalSeconds: Int,
+    @ColumnInfo(name = "totalMeters") val totalMeters: Double,
 )
 
 /** One row per exercise ever logged, for the History tab. */
 data class ExerciseHistoryEntry(
     val exercise: String,
     val muscleGroup: String,
+    /**
+     * The metric of the most recent set, not of all of them. An exercise
+     * recategorised part-way through has sets of both kinds, and the one it is
+     * measured by now is the one worth summarising it with.
+     */
+    val metric: String,
     @ColumnInfo(name = "setCount") val setCount: Int,
     @ColumnInfo(name = "lastPerformed") val lastPerformed: Long,
     @ColumnInfo(name = "bestWeight") val bestWeight: Double,
+    @ColumnInfo(name = "bestReps") val bestReps: Int,
+    @ColumnInfo(name = "bestSeconds") val bestSeconds: Int,
+    @ColumnInfo(name = "bestMeters") val bestMeters: Double,
 )
 
 /** A set together with the session it belongs to, for per-exercise history. */
@@ -125,6 +160,9 @@ data class SetWithSession(
     val reps: Int,
     val weightKg: Double,
     val position: Int,
+    val metric: String = ExerciseMetric.DEFAULT.name,
+    val seconds: Int = 0,
+    val meters: Double = 0.0,
     @ColumnInfo(name = "workoutName") val workoutName: String,
     @ColumnInfo(name = "workoutDate") val workoutDate: Long,
 )

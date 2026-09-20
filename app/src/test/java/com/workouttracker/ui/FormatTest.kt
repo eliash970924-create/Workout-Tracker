@@ -39,6 +39,31 @@ class FormatTest {
     }
 
     @Test
+    fun `durations grow a field at a time`() {
+        assertEquals("45 s", formatDuration(45))
+        assertEquals("1:30", formatDuration(90))
+        assertEquals("2:00", formatDuration(120))
+        assertEquals("1:05:00", formatDuration(3900))
+        assertEquals("0 s", formatDuration(0))
+        assertEquals("0 s", formatDuration(-5))
+    }
+
+    @Test
+    fun `distance switches to kilometres once it gets long`() {
+        assertEquals("400 m", formatDistance(400.0))
+        assertEquals("5.2 km", formatDistance(5200.0))
+        assertEquals("5 km", formatDistance(5000.0))
+        assertEquals("0 m", formatDistance(0.0))
+    }
+
+    @Test
+    fun `metres go back into the field as the kilometres they were typed as`() {
+        assertEquals("5.2", formatKilometres(5200.0))
+        assertEquals("0.4", formatKilometres(400.0))
+        assertEquals("0", formatKilometres(0.0))
+    }
+
+    @Test
     fun `relative time covers the usual ranges`() {
         val now = 1_000_000_000L
         assertEquals("Never", formatRelativeTime(0, now))

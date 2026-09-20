@@ -56,6 +56,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.workouttracker.data.CustomExercise
+import com.workouttracker.data.ExerciseMetric
 import com.workouttracker.data.MuscleGroup
 import com.workouttracker.data.SetEntry
 import com.workouttracker.data.Workout
@@ -82,6 +83,11 @@ class WorkoutDetailViewModel(
     val customExercises: StateFlow<List<CustomExercise>> = repository.observeCustomExercises()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Exercises the user has re-measured, so the picker can say so. */
+    val metricOverrides: StateFlow<Map<String, ExerciseMetric>> =
+        repository.observeMetricOverrides()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     fun rename(name: String) = edit { it.copy(name = name) }
 
     fun setNotes(notes: String) = edit { it.copy(notes = notes) }
@@ -94,9 +100,12 @@ class WorkoutDetailViewModel(
     }
 
     /** Creates the exercise, then adds a first set of it to this session. */
-    fun createExerciseAndAddSet(name: String, muscleGroup: MuscleGroup) {
+    fun createExerciseAndAddSet(name: String, muscleGroup: MuscleGroup, metric: ExerciseMetric) {
         viewModelScope.launch {
             val stored = repository.addCustomExercise(name, muscleGroup)
+            // Recorded as an override, the same place a built-in's would go, so
+            // there is one answer to "how is this measured" and not two.
+            if (metric != ExerciseMetric.DEFAULT) repository.setMetric(stored, metric)
             repository.addSet(workoutId, stored, muscleGroup)
         }
     }
@@ -144,6 +153,7 @@ fun WorkoutDetailScreen(
     val workout by viewModel.workout.collectAsStateWithLifecycle()
     val sets by viewModel.sets.collectAsStateWithLifecycle()
     val customExercises by viewModel.customExercises.collectAsStateWithLifecycle()
+    val metricOverrides by viewModel.metricOverrides.collectAsStateWithLifecycle()
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showAddExercise by remember { mutableStateOf(false) }
@@ -290,13 +300,14 @@ fun WorkoutDetailScreen(
     if (showAddExercise) {
         ExercisePickerDialog(
             customExercises = customExercises,
+            metricOverrides = metricOverrides,
             onDismiss = { showAddExercise = false },
             onPick = { name, group ->
                 viewModel.addSet(name, group)
                 showAddExercise = false
             },
-            onCreate = { name, group ->
-                viewModel.createExerciseAndAddSet(name, group)
+            onCreate = { name, group, metric ->
+                viewModel.createExerciseAndAddSet(name, group, metric)
                 showAddExercise = false
             },
         )

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Straighten
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -55,6 +56,8 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.workouttracker.data.ExerciseCatalog
+import com.workouttracker.data.ExerciseMetric
 import com.workouttracker.data.SetEntry
 import com.workouttracker.data.SetWithSession
 import com.workouttracker.data.WorkoutRepository
@@ -96,11 +99,21 @@ fun previousSession(sets: List<SetWithSession>): PreviousSession? {
     )
 }
 
-/** "5 × 100 kg, 5 × 100 kg, 3 × 110 kg", trailing off once it would get long. */
+/**
+ * One set in words, read by its own metric: "5 × 100 kg", "12 reps", "1:30",
+ * "5.2 km in 25:00".
+ */
+fun describeSet(set: SetWithSession): String = when (ExerciseMetric.of(set.metric)) {
+    ExerciseMetric.WEIGHT_REPS -> "${set.reps} × ${formatWeight(set.weightKg)} kg"
+    ExerciseMetric.REPS -> "${set.reps} reps"
+    ExerciseMetric.TIME -> formatDuration(set.seconds)
+    ExerciseMetric.DISTANCE_TIME ->
+        "${formatDistance(set.meters)} in ${formatDuration(set.seconds)}"
+}
+
+/** A session's sets in a line, trailing off once it would get long. */
 fun describeSets(sets: List<SetWithSession>, limit: Int = 4): String {
-    val shown = sets.take(limit).joinToString(", ") {
-        "${it.reps} × ${formatWeight(it.weightKg)} kg"
-    }
+    val shown = sets.take(limit).joinToString(", ", transform = ::describeSet)
     return if (sets.size > limit) "$shown, …" else shown
 }
 
@@ -129,6 +142,22 @@ class SessionExerciseViewModel(
     fun restSecondsOf(exercise: String): StateFlow<Int?> =
         repository.observeRestSeconds(exercise)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** The metric this exercise was overridden to, or null for the default. */
+    fun metricOverrideOf(exercise: String): StateFlow<ExerciseMetric?> =
+        repository.observeMetricOverride(exercise)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Changes how this exercise is measured, here and everywhere it is logged
+     * from now on. [metric] null goes back to the catalogue's choice.
+     *
+     * This session's sets are re-measured with it, so the change shows up where
+     * it was made; earlier sessions keep the numbers they actually recorded.
+     */
+    fun setMetric(exercise: String, metric: ExerciseMetric?) {
+        viewModelScope.launch { repository.setMetric(exercise, metric, workoutId) }
+    }
 
     /** [seconds] null clears the override and goes back to the default. */
     fun setRestSeconds(exercise: String, seconds: Int?) {
@@ -164,8 +193,8 @@ class SessionExerciseViewModel(
         }
     }
 
-    fun updateSet(set: SetEntry, reps: Int = set.reps, weightKg: Double = set.weightKg) {
-        viewModelScope.launch { repository.updateSet(set.copy(reps = reps, weightKg = weightKg)) }
+    fun updateSet(set: SetEntry) {
+        viewModelScope.launch { repository.updateSet(set) }
     }
 
     fun deleteSet(id: String) {
@@ -192,7 +221,14 @@ fun SessionExerciseScreen(
     val restOverride by remember(exercise) { viewModel.restSecondsOf(exercise) }
         .collectAsStateWithLifecycle()
     val restDefault by viewModel.restDefault.collectAsStateWithLifecycle()
+    val metricOverride by remember(exercise) { viewModel.metricOverrideOf(exercise) }
+        .collectAsStateWithLifecycle()
     var showRestDialog by remember { mutableStateOf(false) }
+    var showMetricDialog by remember { mutableStateOf(false) }
+
+    // What a new set here will ask for. Each existing set still shows the
+    // fields it was logged with, which is what its own metric is for.
+    val metric = metricOverride ?: ExerciseCatalog.metricFor(exercise) ?: ExerciseMetric.DEFAULT
 
     val sets = remember(allSets, exercise) { allSets.filter { it.exercise == exercise } }
     val next = remember(allSets, exercise) { nextExercise(allSets, exercise) }
@@ -225,6 +261,12 @@ fun SessionExerciseScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showMetricDialog = true }) {
+                        Icon(
+                            Icons.Outlined.Straighten,
+                            contentDescription = "How $exercise is measured",
+                        )
+                    }
                     IconButton(onClick = { showRestDialog = true }) {
                         Icon(Icons.Outlined.Timer, contentDescription = "Rest length for $exercise")
                     }
@@ -255,7 +297,7 @@ fun SessionExerciseScreen(
                             onCompleted = { done ->
                                 viewModel.setCompleted(set.id, exercise, done)
                             },
-                            onUpdate = { reps, weight -> viewModel.updateSet(set, reps, weight) },
+                            onUpdate = viewModel::updateSet,
                             onMove = { delta -> viewModel.moveSet(set.id, delta) },
                             onDelete = { viewModel.deleteSet(set.id) },
                             dragHandle = Modifier.draggableHandle(),
@@ -317,6 +359,26 @@ fun SessionExerciseScreen(
             clearLabel = "Use the default instead",
         )
     }
+
+    if (showMetricDialog) {
+        MetricDialog(
+            title = "How is $exercise measured?",
+            initial = metric,
+            supporting = "Sets already logged in this session are changed to " +
+                "match. Earlier sessions keep what they recorded.",
+            onDismiss = { showMetricDialog = false },
+            onConfirm = { chosen ->
+                viewModel.setMetric(exercise, chosen)
+                showMetricDialog = false
+            },
+            onClear = metricOverride?.let {
+                {
+                    viewModel.setMetric(exercise, null)
+                    showMetricDialog = false
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -326,7 +388,7 @@ private fun SetRow(
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onCompleted: (Boolean) -> Unit,
-    onUpdate: (reps: Int, weightKg: Double) -> Unit,
+    onUpdate: (SetEntry) -> Unit,
     onMove: (Int) -> Unit,
     onDelete: () -> Unit,
     dragHandle: Modifier,
@@ -345,19 +407,7 @@ private fun SetRow(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Checkbox(checked = set.completed, onCheckedChange = onCompleted)
-            NumberField(
-                initial = set.reps.toString(),
-                label = "reps",
-                modifier = Modifier.weight(1f),
-                onValue = { text -> text.toIntOrNull()?.let { onUpdate(it, set.weightKg) } },
-            )
-            NumberField(
-                initial = formatWeight(set.weightKg),
-                label = "kg",
-                decimal = true,
-                modifier = Modifier.weight(1f),
-                onValue = { text -> text.toDoubleOrNull()?.let { onUpdate(set.reps, it) } },
-            )
+            SetFields(set = set, onUpdate = onUpdate, modifier = Modifier.weight(1f))
             // Moving and removing share one button: three controls plus two
             // fields do not fit a phone, and removing is no longer the only
             // thing you might want to do to a row.
@@ -462,8 +512,82 @@ private fun FinishedCard(next: String?, onNext: () -> Unit, onBack: () -> Unit) 
 }
 
 /**
+ * The numbers one set is made of, chosen by the set's own metric rather than
+ * the exercise's current one. A bench press asks for reps and kilos, a plank
+ * for a duration, a bike ride for a distance and a duration.
+ *
+ * Reading the metric off the row is what lets a session survive being
+ * recategorised mid-way: every set still shows the fields its numbers were
+ * typed into.
+ */
+@Composable
+private fun SetFields(set: SetEntry, onUpdate: (SetEntry) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        val metric = ExerciseMetric.of(set.metric)
+        if (metric.usesReps) {
+            NumberField(
+                initial = set.reps.toString(),
+                label = "reps",
+                modifier = Modifier.weight(1f),
+                onValue = { text -> text.toIntOrNull()?.let { onUpdate(set.copy(reps = it)) } },
+            )
+        }
+        if (metric.usesWeight) {
+            NumberField(
+                initial = formatWeight(set.weightKg),
+                label = "kg",
+                decimal = true,
+                modifier = Modifier.weight(1f),
+                onValue = { text -> text.toDoubleOrNull()?.let { onUpdate(set.copy(weightKg = it)) } },
+            )
+        }
+        if (metric.usesDistance) {
+            NumberField(
+                initial = formatKilometres(set.meters),
+                label = "km",
+                decimal = true,
+                modifier = Modifier.weight(1f),
+                onValue = { text ->
+                    text.toDoubleOrNull()?.let {
+                        // Stored in metres, so a 0.4 km interval is a round 400.
+                        onUpdate(set.copy(meters = Math.round(it * 1000).toDouble()))
+                    }
+                },
+            )
+        }
+        if (metric.usesSeconds) {
+            // Two fields rather than one "mm:ss", which needs its own parser
+            // and punishes a typo by silently reading as something else.
+            NumberField(
+                initial = (set.seconds / 60).toString(),
+                label = "min",
+                modifier = Modifier.weight(1f),
+                onValue = { text ->
+                    text.toIntOrNull()?.let {
+                        onUpdate(set.copy(seconds = it * 60 + set.seconds % 60))
+                    }
+                },
+            )
+            NumberField(
+                initial = (set.seconds % 60).toString(),
+                label = "sec",
+                modifier = Modifier.weight(1f),
+                onValue = { text ->
+                    text.toIntOrNull()?.let {
+                        onUpdate(set.copy(seconds = set.seconds / 60 * 60 + it))
+                    }
+                },
+            )
+        }
+        // Reps alone would stretch one field across the whole row; keeping it
+        // the width it has everywhere else keeps the list a column.
+        if (metric == ExerciseMetric.REPS) Spacer(Modifier.weight(1f))
+    }
+}
+
+/**
  * Numeric field that lets the user clear it mid-edit and only writes back once
- * the text parses. Reps and weight round-trip through the database too, so the
+ * the text parses. Every number here round-trips through the database, so the
  * buffer has to be held the same way the session name's is.
  */
 @Composable

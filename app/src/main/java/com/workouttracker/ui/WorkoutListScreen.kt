@@ -112,9 +112,16 @@ private fun WorkoutCard(workout: WorkoutSummary, onClick: () -> Unit) {
                     if (workout.setCount == 1) "1 set" else "${workout.setCount} sets",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                if (workout.volume > 0) {
+                // Whichever of the three the session produced. A lifting
+                // session has volume and nothing else; a run has the other two.
+                val totals = buildList {
+                    if (workout.volume > 0) add(formatVolume(workout.volume))
+                    if (workout.totalMeters > 0) add(formatDistance(workout.totalMeters))
+                    if (workout.totalSeconds > 0) add(formatDuration(workout.totalSeconds))
+                }
+                if (totals.isNotEmpty()) {
                     Text(
-                        formatVolume(workout.volume),
+                        totals.joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

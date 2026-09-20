@@ -97,8 +97,9 @@ class WorkoutRepository(
     }
 
     /**
-     * Appends a set for [exercise], defaulting reps and weight to the last set
-     * logged for that exercise in this workout.
+     * Appends a set for [exercise], repeating the last set logged for it in
+     * this workout. Whichever numbers the exercise's metric does not use stay
+     * at zero, so a bike ride never carries a stray weight around.
      */
     suspend fun addSet(
         workoutId: String,
@@ -106,17 +107,31 @@ class WorkoutRepository(
         muscleGroup: MuscleGroup? = null,
         reps: Int? = null,
         weightKg: Double? = null,
+        seconds: Int? = null,
+        meters: Double? = null,
     ) {
         val group = muscleGroup ?: resolveMuscleGroup(exercise)
-        val previous = dao.lastSetOf(workoutId, exercise)
+        val metric = resolveMetric(exercise)
+        // Only repeat a set that was measured the same way; one logged before
+        // the exercise was recategorised has its numbers in other fields.
+        val previous = dao.lastSetOf(workoutId, exercise)?.takeIf { it.metric == metric.name }
         val set = SetEntry(
             id = UUID.randomUUID().toString(),
             workoutId = workoutId,
             exercise = exercise,
-            reps = reps ?: previous?.reps ?: 8,
-            weightKg = weightKg ?: previous?.weightKg ?: 0.0,
+            reps = if (metric.usesReps) reps ?: previous?.reps ?: 8 else 0,
+            weightKg = if (metric.usesWeight) weightKg ?: previous?.weightKg ?: 0.0 else 0.0,
             position = dao.maxPosition(workoutId) + 1,
             muscleGroup = group.name,
+            metric = metric.name,
+            // A minute is a plank; a cardio effort has no useful guess, and an
+            // empty field is a clearer prompt than a made-up number.
+            seconds = when {
+                !metric.usesSeconds -> 0
+                metric == ExerciseMetric.TIME -> seconds ?: previous?.seconds ?: 60
+                else -> seconds ?: previous?.seconds ?: 0
+            },
+            meters = if (metric.usesDistance) meters ?: previous?.meters ?: 0.0 else 0.0,
             updatedAt = now(),
         )
         dao.upsertSet(set)
@@ -133,6 +148,16 @@ class WorkoutRepository(
         val custom = dao.allCustomExercises()
             .firstOrNull { !it.deleted && it.name.equals(exercise.trim(), ignoreCase = true) }
         return MuscleGroup.of(custom?.muscleGroup)
+    }
+
+    /**
+     * How [exercise] is measured: the user's own choice if they made one, then
+     * the catalogue, then weight and reps. A custom exercise records its metric
+     * as an override too, so both come from the same place.
+     */
+    suspend fun resolveMetric(exercise: String): ExerciseMetric {
+        dao.findExerciseSettings(exercise.key())?.metric?.let { return ExerciseMetric.of(it) }
+        return ExerciseCatalog.metricFor(exercise) ?: ExerciseMetric.DEFAULT
     }
 
     suspend fun updateSet(set: SetEntry) {
@@ -267,6 +292,9 @@ class WorkoutRepository(
                         weightKg = set.weightKg,
                         position = ++position,
                         muscleGroup = set.muscleGroup,
+                        metric = set.metric,
+                        seconds = set.seconds,
+                        meters = set.meters,
                         updatedAt = now(),
                     )
                 )
@@ -308,22 +336,86 @@ class WorkoutRepository(
     suspend fun restSecondsFor(exercise: String): Int? =
         dao.findExerciseSettings(exercise.key())?.restSeconds
 
+    /** The metric [exercise] has been overridden to, or null for the default. */
+    fun observeMetricOverride(exercise: String): Flow<ExerciseMetric?> =
+        dao.observeExerciseSettings(exercise.key()).map { row ->
+            row?.metric?.let(ExerciseMetric::of)
+        }
+
+    /**
+     * Every exercise the user has overridden the metric of, keyed the same way
+     * the rows are. The picker needs the whole map at once to label its list.
+     */
+    fun observeMetricOverrides(): Flow<Map<String, ExerciseMetric>> =
+        dao.observeAllExerciseSettings().map { rows ->
+            rows.mapNotNull { row -> row.metric?.let { row.exercise to ExerciseMetric.of(it) } }
+                .toMap()
+        }
+
     /**
      * Sets this exercise's own rest length, or clears it with null so it falls
-     * back to the default. Clearing tombstones rather than deletes, so another
-     * device does not re-create the override on the next sync.
+     * back to the default.
      */
-    suspend fun setRestSeconds(exercise: String, seconds: Int?) {
-        val key = exercise.key()
-        if (seconds == null) {
-            val existing = dao.findExerciseSettingsRow(key) ?: return
-            if (existing.deleted) return
-            dao.upsertExerciseSettings(existing.copy(deleted = true, updatedAt = now()))
-        } else {
-            dao.upsertExerciseSettings(
-                ExerciseSettings(exercise = key, restSeconds = seconds, updatedAt = now())
-            )
+    suspend fun setRestSeconds(exercise: String, seconds: Int?) =
+        updateSettings(exercise) { it.copy(restSeconds = seconds) }
+
+    /**
+     * Sets how [exercise] is measured, or clears it with null to go back to
+     * the catalogue's choice.
+     *
+     * [retagWorkoutId], when given, re-measures that session's sets of this
+     * exercise so the change is visible where it was made. Only that session:
+     * sets logged in the past recorded real numbers under the old metric, and
+     * relabelling them would turn 5 x 100 kg into a 5 metre bike ride.
+     */
+    suspend fun setMetric(
+        exercise: String,
+        metric: ExerciseMetric?,
+        retagWorkoutId: String? = null,
+    ) {
+        updateSettings(exercise) { it.copy(metric = metric?.name) }
+        if (retagWorkoutId == null) return
+        val resolved = resolveMetric(exercise)
+        db.withTransaction {
+            for (set in dao.setsOfExerciseIn(retagWorkoutId, exercise)) {
+                if (set.metric == resolved.name) continue
+                dao.upsertSet(
+                    set.copy(
+                        metric = resolved.name,
+                        // Numbers the new metric does not use are dropped
+                        // rather than left to reappear if it is changed back.
+                        reps = if (resolved.usesReps) set.reps else 0,
+                        weightKg = if (resolved.usesWeight) set.weightKg else 0.0,
+                        seconds = if (resolved.usesSeconds) set.seconds else 0,
+                        meters = if (resolved.usesDistance) set.meters else 0.0,
+                        updatedAt = now(),
+                    )
+                )
+            }
         }
+        syncTrigger.onLocalChange()
+    }
+
+    /**
+     * Edits one exercise's override row, creating it on demand. A row left
+     * carrying no overrides is tombstoned rather than deleted, so another
+     * device does not re-create it on the next sync.
+     */
+    private suspend fun updateSettings(
+        exercise: String,
+        transform: (ExerciseSettings) -> ExerciseSettings,
+    ) {
+        val key = exercise.key()
+        val existing = dao.findExerciseSettingsRow(key)
+        val updated = transform(
+            existing?.copy(deleted = false) ?: ExerciseSettings(exercise = key, updatedAt = 0)
+        )
+        val empty = updated.restSeconds == null && updated.metric == null
+        // Nothing to say, and nothing said before: writing a tombstone for a
+        // row that never existed would be pure sync noise.
+        if (empty && existing == null) return
+        if (empty && existing.deleted) return
+        dao.upsertExerciseSettings(updated.copy(deleted = empty, updatedAt = now()))
         syncTrigger.onLocalChange()
     }
 

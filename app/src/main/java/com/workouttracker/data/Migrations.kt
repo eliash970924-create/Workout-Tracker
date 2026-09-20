@@ -68,3 +68,44 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         )
     }
 }
+
+/**
+ * Adds per-exercise metrics.
+ *
+ * Sets gain a metric of their own plus the two numbers the new ones need. The
+ * metric is deliberately not backfilled from the catalogue the way muscle
+ * groups were in [MIGRATION_1_2]: a plank logged before this version has a rep
+ * count and no duration, so re-labelling it as timed would replace real data
+ * with a zero. Everything already logged stays weight x reps and reads back
+ * exactly as it was entered; only new sets follow the catalogue.
+ *
+ * `exercise_settings` is rebuilt rather than altered, because `restSeconds`
+ * has to become nullable: rest and metric are independent overrides, and
+ * clearing one must not clear the other.
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Defaults must match the entity exactly -- Room validates the migrated
+        // schema on open and rejects any divergence.
+        db.execSQL(
+            "ALTER TABLE `exercise_sets` ADD COLUMN `metric` TEXT NOT NULL DEFAULT 'WEIGHT_REPS'"
+        )
+        db.execSQL("ALTER TABLE `exercise_sets` ADD COLUMN `seconds` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `exercise_sets` ADD COLUMN `meters` REAL NOT NULL DEFAULT 0")
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `exercise_settings_new` (" +
+                "`exercise` TEXT NOT NULL, `restSeconds` INTEGER, `metric` TEXT, " +
+                "`updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`exercise`))"
+        )
+        db.execSQL(
+            "INSERT INTO `exercise_settings_new` " +
+                "(`exercise`, `restSeconds`, `metric`, `updatedAt`, `deleted`) " +
+                "SELECT `exercise`, `restSeconds`, NULL, `updatedAt`, `deleted` " +
+                "FROM `exercise_settings`"
+        )
+        db.execSQL("DROP TABLE `exercise_settings`")
+        db.execSQL("ALTER TABLE `exercise_settings_new` RENAME TO `exercise_settings`")
+    }
+}

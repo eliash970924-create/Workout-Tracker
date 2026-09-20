@@ -44,12 +44,14 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.workouttracker.data.CustomExercise
 import com.workouttracker.data.ExerciseCatalog
+import com.workouttracker.data.ExerciseMetric
 import com.workouttracker.data.MuscleGroup
 
 /** One row in the picker: built-in or user-created. */
 private data class PickerItem(
     val name: String,
     val muscleGroup: MuscleGroup,
+    val metric: ExerciseMetric,
     val isCustom: Boolean,
 )
 
@@ -64,18 +66,29 @@ private data class PickerItem(
 @Composable
 fun ExercisePickerDialog(
     customExercises: List<CustomExercise>,
+    /** Metric overrides, keyed by lower-cased exercise name. */
+    metricOverrides: Map<String, ExerciseMetric>,
     onDismiss: () -> Unit,
     onPick: (name: String, muscleGroup: MuscleGroup) -> Unit,
-    onCreate: (name: String, muscleGroup: MuscleGroup) -> Unit,
+    onCreate: (name: String, muscleGroup: MuscleGroup, metric: ExerciseMetric) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var groupFilter by remember { mutableStateOf<MuscleGroup?>(null) }
     var creating by remember { mutableStateOf<String?>(null) }
 
-    val items = remember(customExercises) {
-        val catalog = ExerciseCatalog.all.map { PickerItem(it.name, it.muscleGroup, isCustom = false) }
+    val items = remember(customExercises, metricOverrides) {
+        fun metricOf(name: String, fallback: ExerciseMetric) =
+            metricOverrides[name.lowercase()] ?: fallback
+        val catalog = ExerciseCatalog.all.map {
+            PickerItem(it.name, it.muscleGroup, metricOf(it.name, it.metric), isCustom = false)
+        }
         val custom = customExercises.map {
-            PickerItem(it.name, MuscleGroup.of(it.muscleGroup), isCustom = true)
+            PickerItem(
+                it.name,
+                MuscleGroup.of(it.muscleGroup),
+                metricOf(it.name, ExerciseMetric.DEFAULT),
+                isCustom = true,
+            )
         }
         // Custom entries win a name clash, so renaming a built-in effectively
         // overrides it rather than showing the exercise twice.
@@ -188,12 +201,12 @@ fun ExercisePickerDialog(
     }
 
     creating?.let { name ->
-        MuscleGroupDialog(
+        NewExerciseDialog(
             exerciseName = name,
             onDismiss = { creating = null },
-            onConfirm = { group ->
+            onConfirm = { group, metric ->
                 creating = null
-                onCreate(name, group)
+                onCreate(name, group, metric)
             },
         )
     }
@@ -209,6 +222,16 @@ private fun ExerciseRow(item: PickerItem, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(item.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        // Said only when it is not the usual thing, so the list stays a list
+        // of names rather than a table.
+        if (item.metric != ExerciseMetric.DEFAULT) {
+            Text(
+                item.metric.displayName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(8.dp))
+        }
         if (item.isCustom) {
             Text(
                 "Yours",
@@ -238,15 +261,44 @@ private fun CreateRow(name: String, onClick: () -> Unit) {
     }
 }
 
-/** Asks which muscle group a newly created exercise belongs to. */
+/**
+ * Asks what a newly created exercise is: which muscle group it works, and
+ * which numbers logging it should ask for.
+ *
+ * Two steps rather than one crowded dialog, because the muscle group narrows
+ * the metric -- pick Cardio and distance and time is the obvious next answer.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MuscleGroupDialog(
+private fun NewExerciseDialog(
     exerciseName: String,
     onDismiss: () -> Unit,
-    onConfirm: (MuscleGroup) -> Unit,
+    onConfirm: (MuscleGroup, ExerciseMetric) -> Unit,
 ) {
     var selected by remember { mutableStateOf(MuscleGroup.OTHER) }
+    var group by remember { mutableStateOf<MuscleGroup?>(null) }
+
+    val chosen = group
+    if (chosen != null) {
+        MetricDialog(
+            title = "How is it measured?",
+            // Cardio is almost never reps and kilos, so start somewhere useful.
+            initial = if (chosen == MuscleGroup.CARDIO) {
+                ExerciseMetric.DISTANCE_TIME
+            } else {
+                ExerciseMetric.DEFAULT
+            },
+            supporting = "\"$exerciseName\" will ask for these when you log it. " +
+                "You can change it later.",
+            confirmLabel = "Add",
+            // Dismissing goes back to the muscle group rather than out of the
+            // flow entirely, so a mis-tap does not lose the name typed.
+            onDismiss = { group = null },
+            onConfirm = { metric -> onConfirm(chosen, metric) },
+        )
+        return
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Muscle group") },
@@ -258,17 +310,17 @@ private fun MuscleGroupDialog(
                 )
                 Spacer(Modifier.height(12.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MuscleGroup.entries.forEach { group ->
+                    MuscleGroup.entries.forEach { option ->
                         FilterChip(
-                            selected = selected == group,
-                            onClick = { selected = group },
-                            label = { Text(group.displayName) },
+                            selected = selected == option,
+                            onClick = { selected = option },
+                            label = { Text(option.displayName) },
                         )
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(selected) }) { Text("Add") } },
+        confirmButton = { TextButton(onClick = { group = selected }) { Text("Next") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

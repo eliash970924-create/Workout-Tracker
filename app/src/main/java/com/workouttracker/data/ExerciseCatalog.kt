@@ -1,7 +1,12 @@
 package com.workouttracker.data
 
 /** An exercise offered by the app, as opposed to one the user typed in. */
-data class CatalogExercise(val name: String, val muscleGroup: MuscleGroup)
+data class CatalogExercise(
+    val name: String,
+    val muscleGroup: MuscleGroup,
+    /** What a new set of it asks for. The user can override it per exercise. */
+    val metric: ExerciseMetric = ExerciseMetric.DEFAULT,
+)
 
 /**
  * The built-in exercise list: common lifts for each muscle group.
@@ -27,23 +32,24 @@ object ExerciseCatalog {
         e("Cable Fly", MuscleGroup.CHEST),
         e("Chest Press Machine", MuscleGroup.CHEST),
         e("Pec Deck", MuscleGroup.CHEST),
-        e("Push-Up", MuscleGroup.CHEST),
-        e("Chest Dip", MuscleGroup.CHEST),
+        e("Push-Up", MuscleGroup.CHEST, ExerciseMetric.REPS),
+        e("Chest Dip", MuscleGroup.CHEST, ExerciseMetric.REPS),
 
         // Back
         e("Deadlift", MuscleGroup.BACK),
         e("Barbell Row", MuscleGroup.BACK),
         e("Pendlay Row", MuscleGroup.BACK),
         e("Dumbbell Row", MuscleGroup.BACK),
-        e("Pull-Up", MuscleGroup.BACK),
-        e("Chin-Up", MuscleGroup.BACK),
+        e("Pull-Up", MuscleGroup.BACK, ExerciseMetric.REPS),
+        e("Chin-Up", MuscleGroup.BACK, ExerciseMetric.REPS),
         e("Lat Pulldown", MuscleGroup.BACK),
         e("Seated Cable Row", MuscleGroup.BACK),
         e("T-Bar Row", MuscleGroup.BACK),
         e("Chest-Supported Row", MuscleGroup.BACK),
         e("Straight-Arm Pulldown", MuscleGroup.BACK),
         e("Face Pull", MuscleGroup.BACK),
-        e("Back Extension", MuscleGroup.BACK),
+        e("Back Extension", MuscleGroup.BACK, ExerciseMetric.REPS),
+        e("Dead Hang", MuscleGroup.BACK, ExerciseMetric.TIME),
 
         // Shoulders
         e("Overhead Press", MuscleGroup.SHOULDERS),
@@ -74,7 +80,7 @@ object ExerciseCatalog {
         e("Rope Pushdown", MuscleGroup.TRICEPS),
         e("Overhead Triceps Extension", MuscleGroup.TRICEPS),
         e("Skull Crusher", MuscleGroup.TRICEPS),
-        e("Triceps Dip", MuscleGroup.TRICEPS),
+        e("Triceps Dip", MuscleGroup.TRICEPS, ExerciseMetric.REPS),
         e("Triceps Kickback", MuscleGroup.TRICEPS),
 
         // Quads
@@ -87,6 +93,7 @@ object ExerciseCatalog {
         e("Walking Lunge", MuscleGroup.QUADS),
         e("Leg Extension", MuscleGroup.QUADS),
         e("Step-Up", MuscleGroup.QUADS),
+        e("Wall Sit", MuscleGroup.QUADS, ExerciseMetric.TIME),
 
         // Hamstrings
         e("Romanian Deadlift", MuscleGroup.HAMSTRINGS),
@@ -94,11 +101,11 @@ object ExerciseCatalog {
         e("Lying Leg Curl", MuscleGroup.HAMSTRINGS),
         e("Seated Leg Curl", MuscleGroup.HAMSTRINGS),
         e("Good Morning", MuscleGroup.HAMSTRINGS),
-        e("Nordic Curl", MuscleGroup.HAMSTRINGS),
+        e("Nordic Curl", MuscleGroup.HAMSTRINGS, ExerciseMetric.REPS),
 
         // Glutes
         e("Hip Thrust", MuscleGroup.GLUTES),
-        e("Glute Bridge", MuscleGroup.GLUTES),
+        e("Glute Bridge", MuscleGroup.GLUTES, ExerciseMetric.REPS),
         e("Sumo Deadlift", MuscleGroup.GLUTES),
         e("Cable Kickback", MuscleGroup.GLUTES),
         e("Hip Abduction", MuscleGroup.GLUTES),
@@ -109,15 +116,15 @@ object ExerciseCatalog {
         e("Leg Press Calf Raise", MuscleGroup.CALVES),
 
         // Core
-        e("Plank", MuscleGroup.CORE),
-        e("Hanging Leg Raise", MuscleGroup.CORE),
+        e("Plank", MuscleGroup.CORE, ExerciseMetric.TIME),
+        e("Hanging Leg Raise", MuscleGroup.CORE, ExerciseMetric.REPS),
         e("Cable Crunch", MuscleGroup.CORE),
-        e("Crunch", MuscleGroup.CORE),
-        e("Sit-Up", MuscleGroup.CORE),
-        e("Russian Twist", MuscleGroup.CORE),
-        e("Ab Wheel Rollout", MuscleGroup.CORE),
-        e("Dead Bug", MuscleGroup.CORE),
-        e("Side Plank", MuscleGroup.CORE),
+        e("Crunch", MuscleGroup.CORE, ExerciseMetric.REPS),
+        e("Sit-Up", MuscleGroup.CORE, ExerciseMetric.REPS),
+        e("Russian Twist", MuscleGroup.CORE, ExerciseMetric.REPS),
+        e("Ab Wheel Rollout", MuscleGroup.CORE, ExerciseMetric.REPS),
+        e("Dead Bug", MuscleGroup.CORE, ExerciseMetric.REPS),
+        e("Side Plank", MuscleGroup.CORE, ExerciseMetric.TIME),
 
         // Forearms
         e("Wrist Curl", MuscleGroup.FOREARMS),
@@ -132,15 +139,41 @@ object ExerciseCatalog {
         e("Thruster", MuscleGroup.FULL_BODY),
         e("Kettlebell Swing", MuscleGroup.FULL_BODY),
         e("Turkish Get-Up", MuscleGroup.FULL_BODY),
-        e("Burpee", MuscleGroup.FULL_BODY),
+        e("Burpee", MuscleGroup.FULL_BODY, ExerciseMetric.REPS),
+
+        // Cardio. Mostly distance and time; the machines you do not get a
+        // distance off are timed instead.
+        e("Running", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Treadmill Run", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Walking", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Incline Treadmill Walk", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Cycling", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Stationary Bike", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Air Bike", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Rowing Machine", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Ski Erg", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Elliptical", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Swimming", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Sled Push", MuscleGroup.CARDIO, ExerciseMetric.DISTANCE_TIME),
+        e("Stair Climber", MuscleGroup.CARDIO, ExerciseMetric.TIME),
+        e("Jump Rope", MuscleGroup.CARDIO, ExerciseMetric.TIME),
+        e("Battle Ropes", MuscleGroup.CARDIO, ExerciseMetric.TIME),
     )
 
-    /** Lower-cased name to muscle group, for classifying already-logged sets. */
-    private val byLowercaseName: Map<String, MuscleGroup> =
-        all.associate { it.name.lowercase() to it.muscleGroup }
+    /** Lower-cased name to entry, for classifying already-logged sets. */
+    private val byLowercaseName: Map<String, CatalogExercise> =
+        all.associateBy { it.name.lowercase() }
 
-    fun muscleGroupFor(exerciseName: String): MuscleGroup? =
+    fun find(exerciseName: String): CatalogExercise? =
         byLowercaseName[exerciseName.trim().lowercase()]
 
-    private fun e(name: String, muscleGroup: MuscleGroup) = CatalogExercise(name, muscleGroup)
+    fun muscleGroupFor(exerciseName: String): MuscleGroup? = find(exerciseName)?.muscleGroup
+
+    fun metricFor(exerciseName: String): ExerciseMetric? = find(exerciseName)?.metric
+
+    private fun e(
+        name: String,
+        muscleGroup: MuscleGroup,
+        metric: ExerciseMetric = ExerciseMetric.DEFAULT,
+    ) = CatalogExercise(name, muscleGroup, metric)
 }

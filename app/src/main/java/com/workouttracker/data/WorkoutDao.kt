@@ -12,7 +12,9 @@ interface WorkoutDao {
         """
         SELECT w.id AS id, w.date AS date, w.name AS name,
                COUNT(s.id) AS setCount,
-               COALESCE(SUM(s.reps * s.weightKg), 0.0) AS volume
+               COALESCE(SUM(s.reps * s.weightKg), 0.0) AS volume,
+               COALESCE(SUM(s.seconds), 0) AS totalSeconds,
+               COALESCE(SUM(s.meters), 0.0) AS totalMeters
         FROM workouts w
         LEFT JOIN exercise_sets s ON s.workoutId = w.id AND s.deleted = 0
         WHERE w.deleted = 0
@@ -84,6 +86,7 @@ interface WorkoutDao {
         """
         SELECT s.id AS id, s.exercise AS exercise, s.reps AS reps,
                s.weightKg AS weightKg, s.position AS position,
+               s.metric AS metric, s.seconds AS seconds, s.meters AS meters,
                w.name AS workoutName, w.date AS workoutDate
         FROM exercise_sets s
         JOIN workouts w ON w.id = s.workoutId
@@ -120,7 +123,14 @@ interface WorkoutDao {
                s.muscleGroup AS muscleGroup,
                COUNT(s.id) AS setCount,
                MAX(w.date) AS lastPerformed,
-               MAX(s.weightKg) AS bestWeight
+               MAX(s.weightKg) AS bestWeight,
+               MAX(s.reps) AS bestReps,
+               MAX(s.seconds) AS bestSeconds,
+               MAX(s.meters) AS bestMeters,
+               (SELECT s2.metric FROM exercise_sets s2
+                JOIN workouts w2 ON w2.id = s2.workoutId
+                WHERE s2.exercise = s.exercise AND s2.deleted = 0 AND w2.deleted = 0
+                ORDER BY w2.date DESC, s2.updatedAt DESC LIMIT 1) AS metric
         FROM exercise_sets s
         JOIN workouts w ON w.id = s.workoutId
         WHERE s.deleted = 0 AND w.deleted = 0
@@ -135,6 +145,7 @@ interface WorkoutDao {
         """
         SELECT s.id AS id, s.exercise AS exercise, s.reps AS reps,
                s.weightKg AS weightKg, s.position AS position,
+               s.metric AS metric, s.seconds AS seconds, s.meters AS meters,
                w.name AS workoutName, w.date AS workoutDate
         FROM exercise_sets s
         JOIN workouts w ON w.id = s.workoutId
@@ -168,6 +179,9 @@ interface WorkoutDao {
 
     @Query("SELECT * FROM exercise_settings WHERE exercise = :exercise")
     suspend fun findExerciseSettingsRow(exercise: String): ExerciseSettings?
+
+    @Query("SELECT * FROM exercise_settings WHERE deleted = 0")
+    fun observeAllExerciseSettings(): Flow<List<ExerciseSettings>>
 
     @Query("SELECT * FROM exercise_settings")
     suspend fun allExerciseSettings(): List<ExerciseSettings>

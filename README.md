@@ -9,28 +9,41 @@ automatic background sync to a private folder in your Google Drive.
 - **Three tabs** — Workouts, History, Settings.
 - **Log sessions** — name, date, free-text notes.
 - **Exercises and sets** — a session is a list of exercises; open one for its
-  sets. Tick each set off as you do it, add or remove sets, reorder them, and
-  edit reps and weight in place. Adding a set reuses the last reps/weight for
-  that exercise, so planning 5×5 is four taps after the first. The session list
-  shows how far through each exercise you are, and finishing one offers the
-  next. Long-press an exercise there to move it or drop it from the session.
+  sets. Tick each set off as you do it, add or remove sets, and edit the
+  numbers in place. Adding a set repeats the last one for that exercise, so
+  planning 5×5 is four taps after the first. The session list shows how far
+  through each exercise you are, and finishing one offers the next.
+- **Reordering** — drag an exercise or a set by its ⋮ handle to move it, or use
+  Move up / Move down in the menu behind the same button. Dropping an exercise
+  from the session is in that menu too.
+- **Exercise metrics** — not everything is reps and kilos, so each exercise
+  says what to ask for: weight and reps, reps alone (pull-ups, push-ups), time
+  (plank, wall sit, dead hang), or distance and time (running, cycling,
+  rowing). The set row shows only those fields, and volume, best set, totals
+  and the progress chart each read in the right units. The built-in exercises
+  come with a sensible choice; the ruler icon on an exercise's screen changes
+  it, and a new custom exercise picks one when you create it.
 - **Copy last time** — inside an exercise, what you did in its last session,
   and one tap to start from it. Copying replaces the sets you have not ticked
   yet and leaves the ticked ones alone, so it is safe mid-exercise.
-- **Built-in exercise library** — 92 common lifts across 12 muscle groups,
-  searchable and filterable. Anything missing can be added as a custom exercise
-  with its own muscle group; custom exercises sync, the built-in list does not
-  (it ships with the app, so syncing it would be pure duplication).
+- **Built-in exercise library** — 110 common exercises across 13 muscle
+  groups, cardio included, searchable and filterable. Anything missing can be
+  added as a custom exercise with its own muscle group and metric; custom
+  exercises sync, the built-in list does not (it ships with the app, so syncing
+  it would be pure duplication).
 - **History per exercise** — every exercise you have trained, filterable by
-  muscle group. Open one for its sessions, best set and total volume.
-- **Progress chart** — per exercise, a line of top set or total volume across
-  sessions. Points are spaced by date, so a month off looks like a month off
-  rather than steady training. Appears once there are two sessions to compare.
+  muscle group. Open one for its sessions, best set and total — volume for a
+  lift, distance for a run, time for a hold.
+- **Progress chart** — per exercise, a line across sessions of whichever
+  measures suit it: top set or volume for a lift, longest or total time for a
+  hold, furthest or total distance for cardio. Points are spaced by date, so a
+  month off looks like a month off rather than steady training. Appears once
+  there are two sessions to compare.
 - **Rest timer** — starts on its own when you tick a set off, counts down in a
   bar at the bottom of the screen, and buzzes when the rest is up. Adjustable
   by 15 seconds either way, skippable, and set to any length you like — or
   switched off — in Settings. Individual exercises can override that from the
-  timer icon on their screen, because deadlifts need longer than curls; the
+  clock icon on their screen, because deadlifts need longer than curls; the
   override syncs, and clearing it goes back to the default. The countdown also
   runs in the notification shade, with +15s and Skip on it. A foreground
   service keeps it alive for the length of the rest, typed `specialUse`
@@ -224,7 +237,7 @@ app/src/main/java/com/workouttracker/
 ├── WorkoutApp.kt          Application; holds the singletons
 ├── MainActivity.kt
 ├── data/                  Room entities, DAO, repository, snapshot model,
-│                          migrations, muscle groups, exercise catalogue
+│                          migrations, muscle groups, metrics, catalogue
 ├── sync/                  Drive auth + REST client, merge driver, WorkManager
 └── ui/                    Compose screens, navigation, theme
 ```
