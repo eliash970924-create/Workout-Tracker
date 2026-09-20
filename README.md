@@ -43,6 +43,12 @@ automatic background sync to a private folder in your Google Drive.
   file picker: one row per set, with raw numbers rather than formatted ones so
   a spreadsheet can sum and chart them. Worth having, because the Drive backup
   below lives in a folder you cannot browse.
+- **Backup and restore** — the whole database as a JSON file, in the same
+  format the Drive sync uses, written wherever you point the picker. Restoring
+  *merges* rather than replaces: for each row, whichever copy was edited more
+  recently wins, deletions included. So a stale backup cannot undo work done
+  since it was taken, and restoring a backup you already have is a no-op. A
+  backup from a newer version of the app is refused rather than partly read.
 - **Progress chart** — per exercise, a line across sessions of whichever
   measures suit it: top set or volume for a lift, longest or total time for a
   hold, furthest or total distance for cardio. Points are spaced by date, so a
