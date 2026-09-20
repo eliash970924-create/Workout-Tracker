@@ -12,7 +12,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -39,6 +40,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -139,6 +143,10 @@ class SessionExerciseViewModel(
         viewModelScope.launch { repository.moveSet(id, delta) }
     }
 
+    fun reorderSets(exercise: String, orderedIds: List<String>) {
+        viewModelScope.launch { repository.reorderSets(workoutId, exercise, orderedIds) }
+    }
+
     fun copyLastSession(exercise: String) {
         viewModelScope.launch { repository.copyLastSession(workoutId, exercise) }
     }
@@ -190,6 +198,23 @@ fun SessionExerciseScreen(
     val next = remember(allSets, exercise) { nextExercise(allSets, exercise) }
     val finished = sets.isNotEmpty() && sets.all { it.completed }
 
+    // Drawing order, owned here so a drag lands where it was dropped rather
+    // than waiting on the write to come back. Re-seeded from the stored order,
+    // including once that write lands.
+    val byId = remember(sets) { sets.associateBy { it.id } }
+    val stored = remember(sets) { sets.map { it.id } }
+    var order by remember { mutableStateOf(stored) }
+    LaunchedEffect(stored) { order = stored }
+
+    val listState = rememberLazyListState()
+    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+        // The sets are the first thing in this list, so the indices line up.
+        if (from.index in order.indices && to.index in order.indices) {
+            order = order.toMutableList().apply { add(to.index, removeAt(from.index)) }
+            viewModel.reorderSets(exercise, order)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -213,19 +238,30 @@ fun SessionExerciseScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
+            state = listState,
             contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            itemsIndexed(sets, key = { _, set -> set.id }) { index, set ->
-                SetRow(
-                    set = set,
-                    canMoveUp = index > 0,
-                    canMoveDown = index < sets.lastIndex,
-                    onCompleted = { done -> viewModel.setCompleted(set.id, exercise, done) },
-                    onUpdate = { reps, weight -> viewModel.updateSet(set, reps, weight) },
-                    onMove = { delta -> viewModel.moveSet(set.id, delta) },
-                    onDelete = { viewModel.deleteSet(set.id) },
-                )
+            items(order, key = { it }) { id ->
+                ReorderableItem(reorderState, key = id) { dragging ->
+                    val set = byId[id]
+                    if (set != null) {
+                        val index = order.indexOf(id)
+                        SetRow(
+                            set = set,
+                            dragging = dragging,
+                            canMoveUp = index > 0,
+                            canMoveDown = index < order.lastIndex,
+                            onCompleted = { done ->
+                                viewModel.setCompleted(set.id, exercise, done)
+                            },
+                            onUpdate = { reps, weight -> viewModel.updateSet(set, reps, weight) },
+                            onMove = { delta -> viewModel.moveSet(set.id, delta) },
+                            onDelete = { viewModel.deleteSet(set.id) },
+                            dragHandle = Modifier.draggableHandle(),
+                        )
+                    }
+                }
             }
             item {
                 OutlinedButton(
@@ -286,16 +322,23 @@ fun SessionExerciseScreen(
 @Composable
 private fun SetRow(
     set: SetEntry,
+    dragging: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onCompleted: (Boolean) -> Unit,
     onUpdate: (reps: Int, weightKg: Double) -> Unit,
     onMove: (Int) -> Unit,
     onDelete: () -> Unit,
+    dragHandle: Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
-    Card(Modifier.fillMaxWidth()) {
+    Card(
+        Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (dragging) 8.dp else 0.dp,
+        ),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -319,7 +362,7 @@ private fun SetRow(
             // fields do not fit a phone, and removing is no longer the only
             // thing you might want to do to a row.
             Box {
-                IconButton(onClick = { menuOpen = true }) {
+                IconButton(onClick = { menuOpen = true }, modifier = dragHandle) {
                     Icon(Icons.Default.MoreVert, contentDescription = "Set options")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {

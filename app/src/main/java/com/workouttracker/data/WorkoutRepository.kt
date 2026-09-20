@@ -202,6 +202,42 @@ class WorkoutRepository(
     }
 
     /**
+     * Puts the session's exercises in [order]. Names not in the session are
+     * ignored, and any the caller left out keep their places after the rest.
+     *
+     * Takes the whole order rather than a direction, because a drag knows where
+     * something ended up and not how many places it passed on the way.
+     */
+    suspend fun reorderExercises(workoutId: String, order: List<String>) {
+        db.withTransaction { renumber(workoutId, order) }
+        syncTrigger.onLocalChange()
+    }
+
+    /**
+     * Puts one exercise's sets in [orderedIds].
+     *
+     * The exercise keeps whatever position slots it already occupies and the
+     * sets are dealt back into them, so a session where two exercises are
+     * interleaved stays interleaved rather than being silently tidied.
+     */
+    suspend fun reorderSets(workoutId: String, exercise: String, orderedIds: List<String>) {
+        val sets = dao.setsOfExerciseIn(workoutId, exercise)
+        if (sets.size < 2) return
+        val slots = sets.map { it.position }.sorted()
+        val byId = sets.associateBy { it.id }
+        db.withTransaction {
+            orderedIds.forEachIndexed { index, id ->
+                val set = byId[id] ?: return@forEachIndexed
+                val slot = slots.getOrNull(index) ?: return@forEachIndexed
+                if (set.position != slot) {
+                    dao.upsertSet(set.copy(position = slot, updatedAt = now()))
+                }
+            }
+        }
+        syncTrigger.onLocalChange()
+    }
+
+    /**
      * Replaces this exercise's un-ticked sets with the ones from the last
      * session it was trained in. Ticked sets are what you actually did, so they
      * stay; only the plan is overwritten. Returns how many sets were copied.

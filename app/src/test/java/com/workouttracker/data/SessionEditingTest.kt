@@ -137,6 +137,69 @@ class SessionEditingTest {
     }
 
     @Test
+    fun `dragging an exercise puts the session in the order given`() = runTest {
+        val id = repository.createWorkout("Full body", LocalDate.of(2026, 1, 5))
+        repository.addSet(id, "Deadlift")
+        repository.addSet(id, "Barbell Bench Press")
+        repository.addSet(id, "Leg Press")
+
+        // What a drag reports: where things ended up, not how far they moved.
+        repository.reorderExercises(id, listOf("Leg Press", "Deadlift", "Barbell Bench Press"))
+
+        assertEquals(
+            listOf("Leg Press", "Deadlift", "Barbell Bench Press"),
+            exerciseOrderOf(id),
+        )
+    }
+
+    @Test
+    fun `an exercise left out of the order keeps its place after the rest`() = runTest {
+        val id = repository.createWorkout("Full body", LocalDate.of(2026, 1, 5))
+        repository.addSet(id, "Deadlift")
+        repository.addSet(id, "Barbell Bench Press")
+        repository.addSet(id, "Leg Press")
+
+        repository.reorderExercises(id, listOf("Leg Press"))
+
+        assertEquals(
+            listOf("Leg Press", "Deadlift", "Barbell Bench Press"),
+            exerciseOrderOf(id),
+        )
+    }
+
+    @Test
+    fun `dragging a set puts that exercise's sets in the order given`() = runTest {
+        val id = repository.createWorkout("Push", LocalDate.of(2026, 1, 5))
+        repository.addSet(id, "Barbell Bench Press", reps = 5, weightKg = 60.0)
+        repository.addSet(id, "Barbell Bench Press", reps = 5, weightKg = 80.0)
+        repository.addSet(id, "Barbell Bench Press", reps = 3, weightKg = 90.0)
+
+        val ids = setsOf(id).map { it.id }
+        repository.reorderSets(id, "Barbell Bench Press", listOf(ids[2], ids[0], ids[1]))
+
+        assertEquals(listOf(90.0, 60.0, 80.0), setsOf(id).map { it.weightKg })
+    }
+
+    @Test
+    fun `dragging a set leaves the other exercises where they were`() = runTest {
+        val id = repository.createWorkout("Full body", LocalDate.of(2026, 1, 5))
+        repository.addSet(id, "Deadlift", reps = 5, weightKg = 100.0)
+        repository.addSet(id, "Leg Press", reps = 10, weightKg = 200.0)
+        repository.addSet(id, "Deadlift", reps = 5, weightKg = 120.0)
+
+        val deadlifts = setsOf(id).filter { it.exercise == "Deadlift" }.map { it.id }
+        repository.reorderSets(id, "Deadlift", deadlifts.reversed())
+
+        // Deadlift keeps the two slots it held, so the leg press stays between
+        // them rather than being shuffled about by someone else's drag.
+        assertEquals(listOf("Deadlift", "Leg Press", "Deadlift"), setsOf(id).map { it.exercise })
+        assertEquals(
+            listOf(120.0, 100.0),
+            setsOf(id).filter { it.exercise == "Deadlift" }.map { it.weightKg },
+        )
+    }
+
+    @Test
     fun `removing an exercise tombstones every one of its sets`() = runTest {
         val id = repository.createWorkout("Full body", LocalDate.of(2026, 1, 5))
         repository.addSet(id, "Deadlift")

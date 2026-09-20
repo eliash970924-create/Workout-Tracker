@@ -1,7 +1,6 @@
 package com.workouttracker.ui
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,17 +13,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
@@ -40,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +50,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -102,6 +107,10 @@ class WorkoutDetailViewModel(
 
     fun moveExercise(exercise: String, delta: Int) {
         viewModelScope.launch { repository.moveExercise(workoutId, exercise, delta) }
+    }
+
+    fun reorderExercises(order: List<String>) {
+        viewModelScope.launch { repository.reorderExercises(workoutId, order) }
     }
 
     fun deleteWorkout(onDeleted: () -> Unit) {
@@ -167,10 +176,31 @@ fun WorkoutDetailScreen(
         }
 
         // Sets grouped by exercise, in the order each exercise first appears.
-        val groups = remember(sets) { sets.groupBy(SetEntry::exercise).toList() }
+        val byExercise = remember(sets) { sets.groupBy(SetEntry::exercise) }
+        val stored = remember(sets) { sets.map(SetEntry::exercise).distinct() }
+
+        // The order the list draws in. A drag rewrites this immediately and
+        // persists afterwards; waiting for the database to come back would drop
+        // the row where it started. Re-seeded whenever the stored order changes,
+        // which includes the write this drag just made.
+        var order by remember { mutableStateOf(stored) }
+        LaunchedEffect(stored) { order = stored }
+
+        val listState = rememberLazyListState()
+        val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+            // Indices are into the whole list, which starts with the name field
+            // and the date button.
+            val fromIndex = from.index - EXERCISES_START
+            val toIndex = to.index - EXERCISES_START
+            if (fromIndex in order.indices && toIndex in order.indices) {
+                order = order.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+                viewModel.reorderExercises(order)
+            }
+        }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
+            state = listState,
             contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -192,17 +222,21 @@ fun WorkoutDetailScreen(
                     Text(formatDay(current.date))
                 }
             }
-            itemsIndexed(groups, key = { _, group -> group.first }) { index, group ->
-                val (exercise, exerciseSets) = group
-                ExerciseRow(
-                    exercise = exercise,
-                    sets = exerciseSets,
-                    canMoveUp = index > 0,
-                    canMoveDown = index < groups.lastIndex,
-                    onOpen = { onOpenExercise(exercise) },
-                    onMove = { delta -> viewModel.moveExercise(exercise, delta) },
-                    onRemove = { confirmRemove = exercise },
-                )
+            items(order, key = { it }) { exercise ->
+                ReorderableItem(reorderState, key = exercise) { dragging ->
+                    val index = order.indexOf(exercise)
+                    ExerciseRow(
+                        exercise = exercise,
+                        sets = byExercise[exercise].orEmpty(),
+                        dragging = dragging,
+                        canMoveUp = index > 0,
+                        canMoveDown = index < order.lastIndex,
+                        onOpen = { onOpenExercise(exercise) },
+                        onMove = { delta -> viewModel.moveExercise(exercise, delta) },
+                        onRemove = { confirmRemove = exercise },
+                        dragHandle = Modifier.draggableHandle(),
+                    )
+                }
             }
             item {
                 OutlinedButton(
@@ -305,84 +339,97 @@ fun WorkoutDetailScreen(
 
 private const val MILLIS_PER_DAY = 86_400_000L
 
+/** The name field and the date button sit above the exercises in the list. */
+private const val EXERCISES_START = 2
+
 /**
  * One exercise in the session: how far through it you are, and a way in.
  *
- * Reordering and removal sit behind a long press rather than on the row. Both
- * are rare next to "open it", and buttons for them would crowd the only thing
- * you normally came here to tap.
+ * The overflow button is also the drag handle -- tap it for the menu, drag it
+ * to move the exercise. Long press used to open the menu, but drag wants that
+ * gesture and a row this narrow has no width for a fourth control.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ExerciseRow(
     exercise: String,
     sets: List<SetEntry>,
+    dragging: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onOpen: () -> Unit,
     onMove: (Int) -> Unit,
     onRemove: () -> Unit,
+    dragHandle: Modifier,
 ) {
     val done = sets.count { it.completed }
     val finished = sets.isNotEmpty() && done == sets.size
     var menuOpen by remember { mutableStateOf(false) }
 
-    Box {
-        Card(
-            Modifier.fillMaxWidth().combinedClickable(
-                onClick = onOpen,
-                onLongClick = { menuOpen = true },
-            )
+    Card(
+        Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (dragging) 8.dp else 0.dp,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(exercise, style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "$done of ${sets.size} sets",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            Column(Modifier.weight(1f)) {
+                Text(exercise, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "$done of ${sets.size} sets",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (finished) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = "All sets done",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = dragHandle) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Exercise options")
                 }
-                if (finished) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = "All sets done",
-                        tint = MaterialTheme.colorScheme.primary,
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Move up") },
+                        enabled = canMoveUp,
+                        leadingIcon = {
+                            Icon(Icons.Default.KeyboardArrowUp, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onMove(-1)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Move down") },
+                        enabled = canMoveDown,
+                        leadingIcon = {
+                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onMove(1)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Remove from session") },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.Delete, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onRemove()
+                        },
                     )
                 }
             }
-        }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(
-                text = { Text("Move up") },
-                enabled = canMoveUp,
-                leadingIcon = { Icon(Icons.Default.KeyboardArrowUp, contentDescription = null) },
-                onClick = {
-                    menuOpen = false
-                    onMove(-1)
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Move down") },
-                enabled = canMoveDown,
-                leadingIcon = { Icon(Icons.Default.KeyboardArrowDown, contentDescription = null) },
-                onClick = {
-                    menuOpen = false
-                    onMove(1)
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("Remove from session") },
-                leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
-                onClick = {
-                    menuOpen = false
-                    onRemove()
-                },
-            )
         }
     }
 }

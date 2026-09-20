@@ -113,6 +113,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
+    // Compose has no reorderable list of its own, and hand-rolled drag
+    // maths is a poor thing to write without a device to try it on.
+    implementation(libs.reorderable)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     implementation(libs.androidx.room.runtime)
