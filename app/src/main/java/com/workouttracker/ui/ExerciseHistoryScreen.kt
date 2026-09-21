@@ -8,11 +8,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -68,6 +71,13 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
         ExerciseMetric.of(sets.firstOrNull()?.metric)
     }
     val measured = remember(sets, metric) { sets.filter { it.metric == metric.name } }
+
+    // Which sets were a personal best the day they were logged. Computed over
+    // every metric this exercise has ever used, not just the current one, so a
+    // recategorised exercise keeps the badges it earned under the old one.
+    val records = remember(sets) {
+        recordIds(historyInOrder(sets).map { it.recordCandidate() })
+    }
 
     val options = remember(metric) { ProgressMetric.optionsFor(metric) }
     var chart by remember(options) { mutableStateOf(options.first()) }
@@ -125,7 +135,12 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
                 }
             }
             items(sessions, key = { it.first }) { (date, sessionSets) ->
-                SessionCard(date = date, name = sessionSets.first().workoutName, sets = sessionSets)
+                SessionCard(
+                    date = date,
+                    name = sessionSets.first().workoutName,
+                    sets = sessionSets,
+                    records = records,
+                )
             }
         }
     }
@@ -169,7 +184,12 @@ private fun Stat(label: String, value: String) {
 }
 
 @Composable
-private fun SessionCard(date: Long, name: String, sets: List<SetWithSession>) {
+private fun SessionCard(
+    date: Long,
+    name: String,
+    sets: List<SetWithSession>,
+    records: Set<String>,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text(formatDay(date), style = MaterialTheme.typography.titleMedium)
@@ -188,6 +208,15 @@ private fun SessionCard(date: Long, name: String, sets: List<SetWithSession>) {
                         modifier = Modifier.padding(end = 12.dp),
                     )
                     Text(describeSet(set), style = MaterialTheme.typography.bodyMedium)
+                    if (set.id in records) {
+                        Spacer(Modifier.width(8.dp))
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = "Personal best",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp).align(Alignment.CenterVertically),
+                        )
+                    }
                 }
             }
         }

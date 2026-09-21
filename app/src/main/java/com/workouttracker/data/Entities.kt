@@ -195,6 +195,13 @@ data class SetWithSession(
     val metric: String = ExerciseMetric.DEFAULT.name,
     val seconds: Int = 0,
     val meters: Double = 0.0,
+    /**
+     * Whether it was ticked off. Records are only made of sets that were
+     * actually done, so a planned 200 kg cannot claim one. Defaulted true
+     * because the database always supplies it: the default only ever describes
+     * a hand-built set in a test, and there it means "one you did".
+     */
+    val completed: Boolean = true,
     @ColumnInfo(name = "workoutName") val workoutName: String,
     @ColumnInfo(name = "workoutDate") val workoutDate: Long,
 )

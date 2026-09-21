@@ -87,6 +87,7 @@ interface WorkoutDao {
         SELECT s.id AS id, s.exercise AS exercise, s.reps AS reps,
                s.weightKg AS weightKg, s.position AS position,
                s.metric AS metric, s.seconds AS seconds, s.meters AS meters,
+               s.completed AS completed,
                w.name AS workoutName, w.date AS workoutDate
         FROM exercise_sets s
         JOIN workouts w ON w.id = s.workoutId
@@ -175,6 +176,7 @@ interface WorkoutDao {
         SELECT s.id AS id, s.exercise AS exercise, s.reps AS reps,
                s.weightKg AS weightKg, s.position AS position,
                s.metric AS metric, s.seconds AS seconds, s.meters AS meters,
+               s.completed AS completed,
                w.name AS workoutName, w.date AS workoutDate
         FROM exercise_sets s
         JOIN workouts w ON w.id = s.workoutId

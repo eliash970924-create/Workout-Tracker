@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.History
@@ -65,6 +67,7 @@ import com.workouttracker.rest.RestPrefs
 import com.workouttracker.rest.RestSettings
 import com.workouttracker.rest.RestTimer
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -142,6 +145,27 @@ class SessionExerciseViewModel(
     fun restSecondsOf(exercise: String): StateFlow<Int?> =
         repository.observeRestSeconds(exercise)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Ids of this session's sets that beat everything else logged for the
+     * exercise, in the order this session did them.
+     *
+     * Only this session's are returned: a record set two months ago is
+     * history, and badging it here would make every session look like a
+     * triumph. The history screen is where the older ones are marked.
+     */
+    fun recordsOf(exercise: String): StateFlow<Set<String>> =
+        combine(
+            repository.observePreviousSets(exercise, workoutId),
+            repository.observeSets(workoutId),
+        ) { earlier, session ->
+            val today = session.filter { it.exercise == exercise && it.completed }
+            val ids = recordIds(
+                historyInOrder(earlier).map { it.recordCandidate() } +
+                    today.map { it.recordCandidate() },
+            )
+            ids.intersect(today.map { it.id }.toSet())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     /** The metric this exercise was overridden to, or null for the default. */
     fun metricOverrideOf(exercise: String): StateFlow<ExerciseMetric?> =
@@ -223,6 +247,8 @@ fun SessionExerciseScreen(
     val restDefault by viewModel.restDefault.collectAsStateWithLifecycle()
     val metricOverride by remember(exercise) { viewModel.metricOverrideOf(exercise) }
         .collectAsStateWithLifecycle()
+    val records by remember(exercise) { viewModel.recordsOf(exercise) }
+        .collectAsStateWithLifecycle()
     var showRestDialog by remember { mutableStateOf(false) }
     var showMetricDialog by remember { mutableStateOf(false) }
 
@@ -292,6 +318,7 @@ fun SessionExerciseScreen(
                         SetRow(
                             set = set,
                             dragging = dragging,
+                            record = set.id in records,
                             canMoveUp = index > 0,
                             canMoveDown = index < order.lastIndex,
                             onCompleted = { done ->
@@ -385,6 +412,7 @@ fun SessionExerciseScreen(
 private fun SetRow(
     set: SetEntry,
     dragging: Boolean,
+    record: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onCompleted: (Boolean) -> Unit,
@@ -401,6 +429,28 @@ private fun SetRow(
             defaultElevation = if (dragging) 8.dp else 0.dp,
         ),
     ) {
+        // Above the fields rather than beside them: the row is already a
+        // checkbox, up to three number fields and a menu button, and a cardio
+        // set has no width left to give.
+        if (record) {
+            Row(
+                modifier = Modifier.padding(start = 12.dp, top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.Star,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    "Personal best",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
