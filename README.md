@@ -36,6 +36,16 @@ automatic background sync to a private folder in your Google Drive.
   added as a custom exercise with its own muscle group and metric; custom
   exercises sync, the built-in list does not (it ships with the app, so syncing
   it would be pure duplication).
+- **This week** — a card above the session list: how many sessions so far this
+  week and what they came to, with last week underneath for comparison, because
+  three sessions is either a good week or a slow one depending on what came
+  before. Weeks run Monday to Sunday, and a session counts once it has a set
+  in it.
+- **Personal bests** — tick off a set that beats everything else logged for
+  that exercise and it says so; the history screen stars the ones that did it
+  before. What counts as best follows the metric: weight then reps, distance
+  then speed, or simply the most reps or the longest hold. Only sets you
+  actually ticked off are eligible, so a planned 200 kg claims nothing.
 - **History per exercise** — every exercise you have trained, filterable by
   muscle group. Open one for its sessions, best set and total — volume for a
   lift, distance for a run, time for a hold.
@@ -71,8 +81,9 @@ automatic background sync to a private folder in your Google Drive.
   8.5 draws none of it: no chip, no lock screen, nothing in Now Bar. That is
   Samsung's side of the line and no change here reaches it. The request costs
   nothing and stays, so it will appear on its own if One UI starts honouring it.
-- **Session list** — every workout with its set count and total volume
-  (reps × weight), newest first.
+- **Session list** — every workout newest first, with its set count and
+  whatever it came to: volume for a lifting session, distance and time for a
+  run.
 - **Auto sync to Google Drive** — see below.
 - Material 3 with dynamic colour on Android 12+, light and dark.
 
