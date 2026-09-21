@@ -54,6 +54,17 @@ fun formatDistance(meters: Double): String = when {
 /** Metres as the kilometres the user typed, for putting back in the field. */
 fun formatKilometres(meters: Double): String = plain(Math.round(meters) / 1000.0)
 
+/**
+ * "12.4t · 5 km · 25:00" -- whichever of the three a session or a week
+ * actually produced. A lifting week has volume and nothing else; a running
+ * week has the other two.
+ */
+fun describeTotals(volume: Double, meters: Double, seconds: Int): String = buildList {
+    if (volume > 0) add(formatVolume(volume))
+    if (meters > 0) add(formatDistance(meters))
+    if (seconds > 0) add(formatDuration(seconds))
+}.joinToString(" · ")
+
 fun formatVolume(kg: Double): String = when {
     kg >= 1000 -> String.format(Locale.US, "%.1ft", kg / 1000)
     else -> "${formatWeight(kg)} kg"

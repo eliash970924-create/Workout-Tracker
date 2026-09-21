@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -78,14 +79,75 @@ fun WorkoutListScreen(onOpenWorkout: (String) -> Unit) {
         if (workouts.isEmpty()) {
             EmptyState(Modifier.padding(padding))
         } else {
+            // Recomputed whenever the list changes, which is often enough:
+            // the only way it goes stale is the app being left open across a
+            // Sunday midnight with nothing logged.
+            val week = remember(workouts) { weekReview(workouts) }
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item { WeekCard(week) }
                 items(workouts, key = { it.id }) { workout ->
                     WorkoutCard(workout, onClick = { onOpenWorkout(workout.id) })
                 }
+            }
+        }
+    }
+}
+
+/**
+ * How the week is going, above the sessions themselves.
+ *
+ * Last week sits underneath because one number on its own says nothing: three
+ * sessions is either a good week or a slow one depending on what came before.
+ */
+@Composable
+private fun WeekCard(review: WeekReview) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "This week",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
+            if (review.thisWeek.isEmpty) {
+                Text("Nothing logged yet.", style = MaterialTheme.typography.titleMedium)
+            } else {
+                Text(
+                    describeSessions(review.thisWeek.sessions),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                val totals = describeTotals(
+                    review.thisWeek.volume,
+                    review.thisWeek.meters,
+                    review.thisWeek.seconds,
+                )
+                if (totals.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        totals,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (!review.lastWeek.isEmpty) {
+                Spacer(Modifier.height(8.dp))
+                val totals = describeTotals(
+                    review.lastWeek.volume,
+                    review.lastWeek.meters,
+                    review.lastWeek.seconds,
+                )
+                Text(
+                    "Last week: " + describeSessions(review.lastWeek.sessions) +
+                        if (totals.isEmpty()) "" else " · $totals",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -112,16 +174,14 @@ private fun WorkoutCard(workout: WorkoutSummary, onClick: () -> Unit) {
                     if (workout.setCount == 1) "1 set" else "${workout.setCount} sets",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                // Whichever of the three the session produced. A lifting
-                // session has volume and nothing else; a run has the other two.
-                val totals = buildList {
-                    if (workout.volume > 0) add(formatVolume(workout.volume))
-                    if (workout.totalMeters > 0) add(formatDistance(workout.totalMeters))
-                    if (workout.totalSeconds > 0) add(formatDuration(workout.totalSeconds))
-                }
+                val totals = describeTotals(
+                    workout.volume,
+                    workout.totalMeters,
+                    workout.totalSeconds,
+                )
                 if (totals.isNotEmpty()) {
                     Text(
-                        totals.joinToString(" · "),
+                        totals,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
