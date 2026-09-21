@@ -65,30 +65,30 @@ fun SetWithSession.recordCandidate(): RecordCandidate? =
     candidate(id, ExerciseMetric.of(metric), reps, weightKg, seconds, meters)
 
 /**
- * The ids of the sets that were a personal best at the moment they were
- * logged, given [candidates] in the order they happened, oldest first.
+ * The id of the best set for each metric, from [candidates] in the order they
+ * happened, oldest first.
  *
- * "At the moment they were logged" rather than "the best ever", so a badge on
- * an old session still says what it said that day. It also means the first set
- * of a new exercise is a record, which is true and reads oddly for about a
- * week.
+ * The best, not every set that was ever the best. Marking the latter looks
+ * reasonable written down and awful in a session: log 8 x 20 kg and then
+ * 8 x 25 kg and both are "a personal best at the time", so both get the badge
+ * even though only one of them is your best. A badge that says "personal best"
+ * has to mean the set it is on is the best one, or it means nothing.
  *
- * Records are kept per metric. An exercise that was logged in kilos and is now
+ * Ties go to whoever got there first, so repeating your best does not move the
+ * badge off the set that earned it.
+ *
+ * Bests are kept per metric. An exercise that was logged in kilos and is now
  * logged in minutes has a best of each, because comparing them would be
  * comparing nothing.
  */
-fun recordIds(candidates: List<RecordCandidate?>): Set<String> {
+fun bestSetIds(candidates: List<RecordCandidate?>): Set<String> {
     val best = mutableMapOf<ExerciseMetric, RecordCandidate>()
-    val records = mutableSetOf<String>()
     for (candidate in candidates) {
         if (candidate == null) continue
         val standing = best[candidate.metric]
-        if (standing == null || candidate.beats(standing)) {
-            best[candidate.metric] = candidate
-            records += candidate.id
-        }
+        if (standing == null || candidate.beats(standing)) best[candidate.metric] = candidate
     }
-    return records
+    return best.values.mapTo(mutableSetOf()) { it.id }
 }
 
 /** Strictly better, so repeating your best is not a new record. */

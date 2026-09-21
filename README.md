@@ -41,11 +41,12 @@ automatic background sync to a private folder in your Google Drive.
   three sessions is either a good week or a slow one depending on what came
   before. Weeks run Monday to Sunday, and a session counts once it has a set
   in it.
-- **Personal bests** — tick off a set that beats everything else logged for
-  that exercise and it says so; the history screen stars the ones that did it
-  before. What counts as best follows the metric: weight then reps, distance
-  then speed, or simply the most reps or the longest hold. Only sets you
-  actually ticked off are eligible, so a planned 200 kg claims nothing.
+- **Personal bests** — your best set for an exercise is marked, in the session
+  you did it and in its history. The best, not every set that ever led: one
+  badge per exercise, and it moves when you beat it. What counts as best
+  follows the metric — weight then reps, distance then speed, or simply the
+  most reps or the longest hold. Only sets you actually ticked off are
+  eligible, so a planned 200 kg claims nothing.
 - **History per exercise** — every exercise you have trained, filterable by
   muscle group. Open one for its sessions, best set and total — volume for a
   lift, distance for a run, time for a hold.

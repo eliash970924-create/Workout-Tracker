@@ -147,12 +147,12 @@ class SessionExerciseViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * Ids of this session's sets that beat everything else logged for the
-     * exercise, in the order this session did them.
+     * The set in this session that is your best for the exercise, if one is.
      *
-     * Only this session's are returned: a record set two months ago is
-     * history, and badging it here would make every session look like a
-     * triumph. The history screen is where the older ones are marked.
+     * Judged against everything else logged, so a session that beats nothing
+     * gets no badge, and a session that does gets exactly one. Only this
+     * session's set is returned: the standing best from two months ago is
+     * marked on the history screen, where it belongs.
      */
     fun recordsOf(exercise: String): StateFlow<Set<String>> =
         combine(
@@ -160,7 +160,7 @@ class SessionExerciseViewModel(
             repository.observeSets(workoutId),
         ) { earlier, session ->
             val today = session.filter { it.exercise == exercise && it.completed }
-            val ids = recordIds(
+            val ids = bestSetIds(
                 historyInOrder(earlier).map { it.recordCandidate() } +
                     today.map { it.recordCandidate() },
             )

@@ -72,11 +72,11 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
     }
     val measured = remember(sets, metric) { sets.filter { it.metric == metric.name } }
 
-    // Which sets were a personal best the day they were logged. Computed over
-    // every metric this exercise has ever used, not just the current one, so a
-    // recategorised exercise keeps the badges it earned under the old one.
+    // The best set, marked wherever in the history it happens to sit. Computed
+    // over every metric this exercise has ever used, not just the current one,
+    // so a recategorised exercise keeps the best it set under the old one.
     val records = remember(sets) {
-        recordIds(historyInOrder(sets).map { it.recordCandidate() })
+        bestSetIds(historyInOrder(sets).map { it.recordCandidate() })
     }
 
     val options = remember(metric) { ProgressMetric.optionsFor(metric) }

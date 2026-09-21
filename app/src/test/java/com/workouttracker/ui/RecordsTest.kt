@@ -11,7 +11,8 @@ import org.junit.Test
  *
  * A badge that appears when it should not is worse than no badge at all, so
  * what is pinned down here is mostly the cases that should *not* count: the
- * empty set, the repeat of a best, the untimed run, the planned set nobody did.
+ * set that used to lead, the repeat of a best, the untimed run, the empty set,
+ * the planned set nobody did.
  */
 class RecordsTest {
 
@@ -44,16 +45,18 @@ class RecordsTest {
         )
     }
 
-    private fun records(vararg sets: SetWithSession): Set<String> =
-        recordIds(historyInOrder(sets.toList()).map { it.recordCandidate() })
+    private fun best(vararg sets: SetWithSession): Set<String> =
+        bestSetIds(historyInOrder(sets.toList()).map { it.recordCandidate() })
 
     @Test
-    fun `a heavier set is a record, a lighter one is not`() {
+    fun `only the heaviest set is marked, not every set that once led`() {
         val first = set(reps = 5, weightKg = 80.0)
         val heavier = set(reps = 5, weightKg = 85.0)
         val lighter = set(reps = 5, weightKg = 82.5)
 
-        assertEquals(setOf(first.id, heavier.id), records(first, heavier, lighter))
+        // The 80 led until the 85 arrived. It is not the best any more, and a
+        // badge saying "personal best" on it would simply be wrong.
+        assertEquals(setOf(heavier.id), best(first, heavier, lighter))
     }
 
     @Test
@@ -62,15 +65,15 @@ class RecordsTest {
         val five = set(reps = 5, weightKg = 100.0)
         val four = set(reps = 4, weightKg = 100.0)
 
-        assertEquals(setOf(three.id, five.id), records(three, five, four))
+        assertEquals(setOf(five.id), best(three, five, four))
     }
 
     @Test
-    fun `repeating your best is not a new record`() {
+    fun `repeating your best leaves the badge on the set that earned it`() {
         val first = set(reps = 5, weightKg = 100.0)
         val same = set(reps = 5, weightKg = 100.0)
 
-        assertEquals(setOf(first.id), records(first, same))
+        assertEquals(setOf(first.id), best(first, same))
     }
 
     @Test
@@ -80,11 +83,11 @@ class RecordsTest {
         val short = set(metric = ExerciseMetric.TIME, seconds = 60)
         val long = set(metric = ExerciseMetric.TIME, seconds = 90)
 
-        val found = records(eight, twelve, short, long)
+        val found = best(eight, twelve, short, long)
 
         // Each metric keeps its own best, so a 90 second plank does not have
         // to beat a set of twelve pull-ups to count.
-        assertEquals(setOf(eight.id, twelve.id, short.id, long.id), found)
+        assertEquals(setOf(twelve.id, long.id), found)
     }
 
     @Test
@@ -95,8 +98,8 @@ class RecordsTest {
         val fiveKSlowAgain = set(metric = ExerciseMetric.DISTANCE_TIME, meters = 5000.0, seconds = 1500)
 
         assertEquals(
-            setOf(threeK.id, fiveKSlow.id, fiveKFast.id),
-            records(threeK, fiveKSlow, fiveKFast, fiveKSlowAgain),
+            setOf(fiveKFast.id),
+            best(threeK, fiveKSlow, fiveKFast, fiveKSlowAgain),
         )
     }
 
@@ -106,7 +109,7 @@ class RecordsTest {
         val untimed = set(metric = ExerciseMetric.DISTANCE_TIME, meters = 5000.0, seconds = 0)
 
         // It is not a faster 5k, it is a 5k nobody timed.
-        assertEquals(setOf(timed.id), records(timed, untimed))
+        assertEquals(setOf(timed.id), best(timed, untimed))
     }
 
     @Test
@@ -116,7 +119,7 @@ class RecordsTest {
         val noTime = set(metric = ExerciseMetric.TIME, seconds = 0)
         val noDistance = set(metric = ExerciseMetric.DISTANCE_TIME, meters = 0.0, seconds = 600)
 
-        assertTrue(records(empty, noReps, noTime, noDistance).isEmpty())
+        assertTrue(best(empty, noReps, noTime, noDistance).isEmpty())
     }
 
     @Test
@@ -124,7 +127,7 @@ class RecordsTest {
         val done = set(reps = 5, weightKg = 100.0)
         val planned = set(reps = 5, weightKg = 200.0, completed = false)
 
-        assertEquals(setOf(done.id), records(done, planned))
+        assertEquals(setOf(done.id), best(done, planned))
     }
 
     @Test
@@ -134,7 +137,7 @@ class RecordsTest {
         val newPlank = set(metric = ExerciseMetric.TIME, seconds = 90)
 
         // Neither can beat the other, so both stand.
-        assertEquals(setOf(oldPlank.id, newPlank.id), records(oldPlank, newPlank))
+        assertEquals(setOf(oldPlank.id, newPlank.id), best(oldPlank, newPlank))
     }
 
     @Test
@@ -143,9 +146,9 @@ class RecordsTest {
         val older = set(reps = 5, weightKg = 100.0, day = 10, position = 0)
         val newer = set(reps = 5, weightKg = 90.0, day = 20, position = 0)
 
-        // The 100 came first, so the later 90 is not a record. Sorting the
-        // other way round would badge the 90 and miss the 100.
-        assertEquals(setOf(older.id), records(newer, older))
+        // The 100 is still the best; sorting the other way round would let
+        // the later, lighter set take the badge.
+        assertEquals(setOf(older.id), best(newer, older))
     }
 
     @Test
@@ -160,9 +163,29 @@ class RecordsTest {
     }
 
     @Test
-    fun `the first set of a new exercise is a record, because it is`() {
+    fun `the only set of a new exercise is its best, because it is`() {
         val only = set(reps = 5, weightKg = 60.0)
 
-        assertEquals(setOf(only.id), records(only))
+        assertEquals(setOf(only.id), best(only))
+    }
+
+    @Test
+    fun `adding a heavier set moves the badge rather than handing out a second`() {
+        // The report that prompted this: 8 x 20 kg, then 8 x 25 kg in the same
+        // session, and both wore the badge.
+        val twenty = set(reps = 8, weightKg = 20.0)
+        val twentyFive = set(reps = 8, weightKg = 25.0)
+
+        assertEquals(setOf(twentyFive.id), best(twenty, twentyFive))
+    }
+
+    @Test
+    fun `a whole session of building up leaves exactly one badge`() {
+        val warmUp = set(reps = 8, weightKg = 20.0)
+        val middle = set(reps = 8, weightKg = 22.5)
+        val top = set(reps = 8, weightKg = 25.0)
+        val backOff = set(reps = 10, weightKg = 20.0)
+
+        assertEquals(setOf(top.id), best(warmUp, middle, top, backOff))
     }
 }
