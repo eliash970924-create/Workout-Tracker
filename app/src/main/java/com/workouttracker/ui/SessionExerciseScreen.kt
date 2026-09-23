@@ -629,7 +629,9 @@ private fun BestBanner(best: PersonalBest) {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "Best: ${best.set}",
+                // "All-time" spelled out: plain "Best" next to a date reads as
+                // the best of that session rather than of every session.
+                "All-time best: ${best.set}",
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f),
             )
