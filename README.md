@@ -80,12 +80,19 @@ automatic background sync to a private folder in your Google Drive.
   because `shortService` is capped at three minutes and a rest can be set to
   thirty.
 
-  It also asks Android 16 to promote it to a Live Update, which is meant to put
-  it on the lock screen and in the status bar chip. Android grants that — the
-  posted notification comes back carrying `FLAG_PROMOTED_ONGOING` — but One UI
-  8.5 draws none of it: no chip, no lock screen, nothing in Now Bar. That is
-  Samsung's side of the line and no change here reaches it. The request costs
-  nothing and stays, so it will appear on its own if One UI starts honouring it.
+  It also asks Android 16 to promote it to a Live Update, which puts it on the
+  lock screen, in the status bar chip, and in Now Bar on Samsung phones.
+
+  **On Samsung (One UI 8 / 8.5) this needs one switch.** Android promotes the
+  notification — it comes back carrying `FLAG_PROMOTED_ONGOING` — but One UI
+  only draws Live Updates from Samsung's own apps and ones it has added
+  individually. Everything else is filtered out, silently. To let it through,
+  enable Developer options (Settings → About phone → Software information → tap
+  Build number seven times), then turn on **Developer options → Live
+  notifications for all apps**. That switch applies to every app on the phone,
+  not just this one. Nothing in the app needs changing; it meets every
+  requirement Google lists, and was being drawn nowhere only because of the
+  filter.
 - **Session list** — every workout newest first, with its set count and
   whatever it came to: volume for a lifting session, distance and time for a
   run.
