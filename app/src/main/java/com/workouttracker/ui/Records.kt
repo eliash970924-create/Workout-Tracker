@@ -99,3 +99,35 @@ private fun RecordCandidate.beats(other: RecordCandidate): Boolean =
 fun historyInOrder(sets: List<SetWithSession>): List<SetWithSession> =
     sets.filter { it.completed }
         .sortedWith(compareBy({ it.workoutDate }, { it.position }))
+
+/** Your standing best at one exercise, for the banner at the top of it. */
+data class PersonalBest(
+    /** The set, as the rows describe one: "5 × 100 kg", "1:30", "5 km in 25:00". */
+    val set: String,
+    /** The day it was set, or null when it was set in the session in hand. */
+    val date: Long?,
+)
+
+/**
+ * The best set of [metric] across [earlier] sessions and [today]'s, by the same
+ * rule as the badge -- so the banner and the star can never disagree about
+ * which set it is.
+ *
+ * Only the metric the exercise is measured by now: after switching planks to
+ * timed, a best of "1 × 20 kg" is not an answer to anything. Null until there
+ * is a ticked-off set in that metric to be the best.
+ */
+fun personalBest(
+    earlier: List<SetWithSession>,
+    today: List<SetEntry>,
+    metric: ExerciseMetric,
+): PersonalBest? {
+    val history = historyInOrder(earlier)
+    val done = today.filter { it.completed }
+    val ids = bestSetIds(history.map { it.recordCandidate() } + done.map { it.recordCandidate() })
+    done.firstOrNull { it.id in ids && it.metric == metric.name }
+        ?.let { return PersonalBest(describeSet(it), date = null) }
+    history.firstOrNull { it.id in ids && it.metric == metric.name }
+        ?.let { return PersonalBest(describeSet(it), date = it.workoutDate) }
+    return null
+}

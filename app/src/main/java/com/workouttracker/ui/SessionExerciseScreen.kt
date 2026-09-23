@@ -44,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -138,19 +139,36 @@ fun previousSession(sets: List<SetWithSession>): PreviousSession? {
  * One set in words, read by its own metric: "5 × 100 kg", "12 reps", "1:30",
  * "5.2 km in 25:00".
  */
-fun describeSet(set: SetWithSession): String = when (ExerciseMetric.of(set.metric)) {
-    ExerciseMetric.WEIGHT_REPS -> "${set.reps} × ${formatWeight(set.weightKg)} kg"
-    ExerciseMetric.REPS -> "${set.reps} reps"
-    ExerciseMetric.TIME -> formatDuration(set.seconds)
-    ExerciseMetric.DISTANCE_TIME ->
-        "${formatDistance(set.meters)} in ${formatDuration(set.seconds)}"
+fun describeSet(set: SetWithSession): String =
+    describe(ExerciseMetric.of(set.metric), set.reps, set.weightKg, set.seconds, set.meters)
+
+fun describeSet(set: SetEntry): String =
+    describe(ExerciseMetric.of(set.metric), set.reps, set.weightKg, set.seconds, set.meters)
+
+private fun describe(
+    metric: ExerciseMetric,
+    reps: Int,
+    weightKg: Double,
+    seconds: Int,
+    meters: Double,
+): String = when (metric) {
+    ExerciseMetric.WEIGHT_REPS -> "$reps × ${formatWeight(weightKg)} kg"
+    ExerciseMetric.REPS -> "$reps reps"
+    ExerciseMetric.TIME -> formatDuration(seconds)
+    ExerciseMetric.DISTANCE_TIME -> "${formatDistance(meters)} in ${formatDuration(seconds)}"
 }
 
 /** A session's sets in a line, trailing off once it would get long. */
 fun describeSets(sets: List<SetWithSession>, limit: Int = 4): String {
-    val shown = sets.take(limit).joinToString(", ", transform = ::describeSet)
+    val shown = sets.take(limit).joinToString(", ") { describeSet(it) }
     return if (sets.size > limit) "$shown, …" else shown
 }
+
+/** See [SessionExerciseViewModel.bestsOf]. */
+data class ExerciseBests(
+    val todayIds: Set<String> = emptySet(),
+    val best: PersonalBest? = null,
+)
 
 class SessionExerciseViewModel(
     private val repository: WorkoutRepository,
@@ -179,25 +197,32 @@ class SessionExerciseViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * The set in this session that is your best for the exercise, if one is.
+     * Your best at this exercise: the set that holds it, if it is one of this
+     * session's, and the best itself for the banner.
      *
-     * Judged against everything else logged, so a session that beats nothing
-     * gets no badge, and a session that does gets exactly one. Only this
-     * session's set is returned: the standing best from two months ago is
-     * marked on the history screen, where it belongs.
+     * One flow for both so the star and the banner are worked out from the
+     * same sets at the same moment and cannot disagree. Judged against
+     * everything else logged, so a session that beats nothing badges nothing;
+     * the best from two months ago is named in the banner and starred on the
+     * history screen, not badged here.
      */
-    fun recordsOf(exercise: String): StateFlow<Set<String>> =
+    fun bestsOf(exercise: String): StateFlow<ExerciseBests> =
         combine(
             repository.observePreviousSets(exercise, workoutId),
             repository.observeSets(workoutId),
-        ) { earlier, session ->
+            repository.observeMetricOverride(exercise),
+        ) { earlier, session, override ->
             val today = session.filter { it.exercise == exercise && it.completed }
             val ids = bestSetIds(
                 historyInOrder(earlier).map { it.recordCandidate() } +
                     today.map { it.recordCandidate() },
             )
-            ids.intersect(today.map { it.id }.toSet())
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+            val metric = override ?: ExerciseCatalog.metricFor(exercise) ?: ExerciseMetric.DEFAULT
+            ExerciseBests(
+                todayIds = ids.intersect(today.map { it.id }.toSet()),
+                best = personalBest(earlier, today, metric),
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ExerciseBests())
 
     /** The metric this exercise was overridden to, or null for the default. */
     fun metricOverrideOf(exercise: String): StateFlow<ExerciseMetric?> =
@@ -288,7 +313,7 @@ fun SessionExerciseScreen(
     val restDefault by viewModel.restDefault.collectAsStateWithLifecycle()
     val metricOverride by remember(exercise) { viewModel.metricOverrideOf(exercise) }
         .collectAsStateWithLifecycle()
-    val records by remember(exercise) { viewModel.recordsOf(exercise) }
+    val bests by remember(exercise) { viewModel.bestsOf(exercise) }
         .collectAsStateWithLifecycle()
     var showRestDialog by remember { mutableStateOf(false) }
     var showMetricDialog by remember { mutableStateOf(false) }
@@ -374,59 +399,65 @@ fun SessionExerciseScreen(
         },
         bottomBar = { RestTimerBar() },
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            state = listState,
-            contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(order, key = { it }) { id ->
-                ReorderableItem(reorderState, key = id) { dragging ->
-                    val set = byId[id]
-                    if (set != null) {
-                        val index = order.indexOf(id)
-                        SetRow(
-                            set = set,
-                            dragging = dragging,
-                            record = set.id in records,
-                            canMoveUp = index > 0,
-                            canMoveDown = index < order.lastIndex,
-                            onCompleted = { done ->
-                                viewModel.setCompleted(set.id, exercise, done)
-                            },
-                            onUpdate = viewModel::updateSet,
-                            onMove = { delta -> viewModel.moveSet(set.id, delta) },
-                            onDelete = { viewModel.deleteSet(set.id) },
-                            dragHandle = Modifier.draggableHandle(),
+        // The banner sits above the list rather than inside it: pinned, so the
+        // number to beat is still there with the list scrolled, and out of the
+        // list's indices, which the drag-to-reorder counts sets by.
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            bests.best?.let { BestBanner(it) }
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                state = listState,
+                contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(order, key = { it }) { id ->
+                    ReorderableItem(reorderState, key = id) { dragging ->
+                        val set = byId[id]
+                        if (set != null) {
+                            val index = order.indexOf(id)
+                            SetRow(
+                                set = set,
+                                dragging = dragging,
+                                record = set.id in bests.todayIds,
+                                canMoveUp = index > 0,
+                                canMoveDown = index < order.lastIndex,
+                                onCompleted = { done ->
+                                    viewModel.setCompleted(set.id, exercise, done)
+                                },
+                                onUpdate = viewModel::updateSet,
+                                onMove = { delta -> viewModel.moveSet(set.id, delta) },
+                                onDelete = { viewModel.deleteSet(set.id) },
+                                dragHandle = Modifier.draggableHandle(),
+                            )
+                        }
+                    }
+                }
+                item {
+                    OutlinedButton(
+                        onClick = { viewModel.addSet(exercise) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Add set")
+                    }
+                }
+                previous?.let { last ->
+                    item {
+                        LastTimeCard(
+                            previous = last,
+                            onCopy = { viewModel.copyLastSession(exercise) },
                         )
                     }
                 }
-            }
-            item {
-                OutlinedButton(
-                    onClick = { viewModel.addSet(exercise) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Add set")
-                }
-            }
-            previous?.let { last ->
-                item {
-                    LastTimeCard(
-                        previous = last,
-                        onCopy = { viewModel.copyLastSession(exercise) },
-                    )
-                }
-            }
-            if (finished) {
-                item {
-                    FinishedCard(
-                        remaining = remaining,
-                        onOpen = onOpenExercise,
-                        onBack = onBack,
-                    )
+                if (finished) {
+                    item {
+                        FinishedCard(
+                            remaining = remaining,
+                            onOpen = onOpenExercise,
+                            onBack = onBack,
+                        )
+                    }
                 }
             }
         }
@@ -570,6 +601,44 @@ private fun SetRow(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Your best at this exercise, pinned above the sets: the number to beat, and
+ * when you set it. Updates the moment a ticked set beats it, alongside the
+ * badge on that set.
+ */
+@Composable
+private fun BestBanner(best: PersonalBest) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Star,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Best: ${best.set}",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                // A session can be dated other than today, so "this session"
+                // rather than "today" for a best set in the one in hand.
+                best.date?.let { formatDay(it) } ?: "This session",
+                style = MaterialTheme.typography.labelMedium,
+            )
         }
     }
 }

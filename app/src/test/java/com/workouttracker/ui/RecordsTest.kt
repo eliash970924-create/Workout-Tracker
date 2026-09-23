@@ -1,8 +1,10 @@
 package com.workouttracker.ui
 
 import com.workouttracker.data.ExerciseMetric
+import com.workouttracker.data.SetEntry
 import com.workouttracker.data.SetWithSession
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -187,5 +189,82 @@ class RecordsTest {
         val backOff = set(reps = 10, weightKg = 20.0)
 
         assertEquals(setOf(top.id), best(warmUp, middle, top, backOff))
+    }
+
+    /** A set in the session in hand, as the exercise screen holds it. */
+    private fun today(
+        reps: Int = 0,
+        weightKg: Double = 0.0,
+        seconds: Int = 0,
+        metric: ExerciseMetric = ExerciseMetric.WEIGHT_REPS,
+        completed: Boolean = true,
+    ) = SetEntry(
+        id = "t${next++}",
+        workoutId = "today",
+        exercise = "Test",
+        reps = reps,
+        weightKg = weightKg,
+        position = next,
+        metric = metric.name,
+        seconds = seconds,
+        completed = completed,
+        updatedAt = 1,
+    )
+
+    @Test
+    fun `the banner names the best set and the day it was set`() {
+        val best = personalBest(
+            earlier = listOf(
+                set(reps = 5, weightKg = 100.0, day = 10),
+                set(reps = 5, weightKg = 90.0, day = 20),
+            ),
+            today = listOf(today(reps = 5, weightKg = 95.0)),
+            metric = ExerciseMetric.WEIGHT_REPS,
+        )
+
+        assertEquals("5 × 100 kg", best?.set)
+        assertEquals(10L, best?.date)
+    }
+
+    @Test
+    fun `beating it today moves the banner to this session`() {
+        val best = personalBest(
+            earlier = listOf(set(reps = 5, weightKg = 100.0, day = 10)),
+            today = listOf(today(reps = 5, weightKg = 105.0)),
+            metric = ExerciseMetric.WEIGHT_REPS,
+        )
+
+        assertEquals("5 × 105 kg", best?.set)
+        // Null means the session in hand, which is shown as "this session".
+        assertNull(best?.date)
+    }
+
+    @Test
+    fun `a set typed in but not ticked off does not move the banner`() {
+        val best = personalBest(
+            earlier = listOf(set(reps = 5, weightKg = 100.0, day = 10)),
+            today = listOf(today(reps = 5, weightKg = 200.0, completed = false)),
+            metric = ExerciseMetric.WEIGHT_REPS,
+        )
+
+        assertEquals("5 × 100 kg", best?.set)
+    }
+
+    @Test
+    fun `the banner speaks in the metric the exercise is measured by now`() {
+        val earlier = listOf(
+            set(metric = ExerciseMetric.WEIGHT_REPS, reps = 1, weightKg = 20.0, day = 10),
+            set(metric = ExerciseMetric.TIME, seconds = 90, day = 20),
+        )
+
+        assertEquals("1:30", personalBest(earlier, emptyList(), ExerciseMetric.TIME)?.set)
+        // Switched to timed and never timed one: there is no best to show yet,
+        // rather than a best in kilos for an exercise measured in minutes.
+        assertNull(personalBest(earlier.take(1), emptyList(), ExerciseMetric.TIME))
+    }
+
+    @Test
+    fun `an exercise never done has no banner`() {
+        assertNull(personalBest(emptyList(), emptyList(), ExerciseMetric.WEIGHT_REPS))
     }
 }

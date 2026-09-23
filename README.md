@@ -49,7 +49,9 @@ automatic background sync to a private folder in your Google Drive.
   badge per exercise, and it moves when you beat it. What counts as best
   follows the metric — weight then reps, distance then speed, or simply the
   most reps or the longest hold. Only sets you actually ticked off are
-  eligible, so a planned 200 kg claims nothing.
+  eligible, so a planned 200 kg claims nothing. Inside an exercise, a banner
+  pinned above the sets says what your best is and when you set it — the
+  number to beat — and updates the moment you beat it.
 - **History per exercise** — every exercise you have trained, filterable by
   muscle group. Open one for its sessions, best set and total — volume for a
   lift, distance for a run, time for a hold.
