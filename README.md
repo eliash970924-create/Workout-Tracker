@@ -12,7 +12,10 @@ automatic background sync to a private folder in your Google Drive.
   sets. Tick each set off as you do it, add or remove sets, and edit the
   numbers in place. Adding a set repeats the last one for that exercise, so
   planning 5×5 is four taps after the first. The session list shows how far
-  through each exercise you are, and finishing one offers the next.
+  through each exercise you are, and finishing one offers the next — plus any
+  other that is still unfinished, for when a machine is taken. Skipping one and
+  coming back to it later works: once you finish the exercise after it, the
+  skipped one is what comes up next rather than "the session is over".
 - **Reordering** — drag an exercise or a set by its ⋮ handle to move it, or use
   Move up / Move down in the menu behind the same button. Dropping an exercise
   from the session is in that menu too.

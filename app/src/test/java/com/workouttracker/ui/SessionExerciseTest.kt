@@ -10,15 +10,17 @@ import org.junit.Test
 /** The "what's next" prompt is only as good as this ordering. */
 class SessionExerciseTest {
 
-    private fun set(id: String, exercise: String, position: Int) = SetEntry(
-        id = id,
-        workoutId = "w1",
-        exercise = exercise,
-        reps = 5,
-        weightKg = 60.0,
-        position = position,
-        updatedAt = 1,
-    )
+    private fun set(id: String, exercise: String, position: Int, completed: Boolean = false) =
+        SetEntry(
+            id = id,
+            workoutId = "w1",
+            exercise = exercise,
+            reps = 5,
+            weightKg = 60.0,
+            position = position,
+            completed = completed,
+            updatedAt = 1,
+        )
 
     private val session = listOf(
         set("s1", "Barbell Bench Press", 0),
@@ -39,25 +41,81 @@ class SessionExerciseTest {
     }
 
     @Test
-    fun `the next exercise is the one after this in the session`() {
-        assertEquals("Barbell Row", nextExercise(session, "Barbell Bench Press"))
-        assertEquals("Plank", nextExercise(session, "Barbell Row"))
+    fun `what is left starts after this exercise, in session order`() {
+        assertEquals(listOf("Barbell Row", "Plank"), remainingExercises(session, "Barbell Bench Press"))
     }
 
     @Test
-    fun `the last exercise has nothing after it`() {
-        assertNull(nextExercise(session, "Plank"))
+    fun `what is left wraps round to an exercise that was skipped`() {
+        // A busy machine: bench, skip the row, plank. When the plank is done,
+        // the row is still waiting, and "nothing after this" would be wrong.
+        assertEquals(
+            listOf("Barbell Bench Press", "Barbell Row"),
+            remainingExercises(session, "Plank"),
+        )
     }
 
     @Test
-    fun `an exercise not in the session has no next`() {
-        assertNull(nextExercise(session, "Deadlift"))
+    fun `finished exercises are not suggested again`() {
+        val sets = listOf(
+            set("s1", "Barbell Bench Press", 0, completed = true),
+            set("s2", "Barbell Row", 1, completed = true),
+            set("s3", "Plank", 2),
+        )
+
+        // Did the row before the bench; the bench is done, and so is the row.
+        assertEquals(listOf("Plank"), remainingExercises(sets, "Barbell Bench Press"))
     }
 
     @Test
-    fun `an empty session has no order and no next`() {
-        assertEquals(emptyList<String>(), exerciseOrder(emptyList()))
-        assertNull(nextExercise(emptyList(), "Barbell Bench Press"))
+    fun `when everything is done there is nothing left`() {
+        val sets = listOf(
+            set("s1", "Barbell Bench Press", 0, completed = true),
+            set("s2", "Barbell Row", 1, completed = true),
+        )
+
+        assertEquals(emptyList<String>(), remainingExercises(sets, "Barbell Row"))
+        assertEquals(emptyList<String>(), remainingExercises(emptyList(), "Barbell Row"))
+    }
+
+    @Test
+    fun `mid-exercise, the rest is just the next set`() {
+        val sets = listOf(
+            set("s1", "Lateral Raise", 0, completed = true),
+            set("s2", "Lateral Raise", 1),
+            set("s3", "Barbell Row", 2),
+        )
+
+        // Null means the usual "time for your next set of lateral raises".
+        assertNull(restNext(sets, "Lateral Raise"))
+    }
+
+    @Test
+    fun `after the last set of an exercise, the rest leads to the next one`() {
+        val sets = listOf(
+            set("s1", "Lateral Raise", 0, completed = true),
+            set("s2", "Lateral Raise", 1, completed = true),
+            set("s3", "Barbell Row", 2),
+        )
+
+        val next = restNext(sets, "Lateral Raise")
+
+        assertEquals("Time for Barbell Row.", next?.message)
+        assertEquals("Barbell Row", next?.exercise)
+    }
+
+    @Test
+    fun `after the last set of the session, the rest says so`() {
+        val sets = listOf(
+            set("s1", "Barbell Row", 0, completed = true),
+            set("s2", "Lateral Raise", 1, completed = true),
+        )
+
+        val next = restNext(sets, "Lateral Raise")
+
+        assertEquals("That was the last set of the session.", next?.message)
+        // Tapping it opens the session rather than an exercise.
+        assertNull(next?.exercise)
     }
 
     private fun past(day: Long, reps: Int, weightKg: Double) = SetWithSession(

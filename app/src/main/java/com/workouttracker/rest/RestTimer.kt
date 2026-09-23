@@ -17,6 +17,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
 
+/**
+ * What a rest leads up to, when it is not simply another set of the same
+ * exercise: said in the notification that ends it, and opened by tapping that.
+ */
+data class RestNext(
+    val message: String,
+    /** The exercise to open, or null for the session as a whole. */
+    val exercise: String?,
+)
+
 /** A rest in progress. Null state means nothing is running. */
 data class RestState(
     val remainingSeconds: Int,
@@ -30,6 +40,8 @@ data class RestState(
      * to the exercise rather than dropping you on the home screen.
      */
     val workoutId: String? = null,
+    /** Null means another set of [label] is next, which is the usual case. */
+    val next: RestNext? = null,
 )
 
 /**
@@ -62,26 +74,38 @@ class RestTimer(
      * timer on; [seconds] is the exercise's own rest length, or null to use the
      * default from Settings.
      */
-    fun startIfEnabled(seconds: Int? = null, label: String? = null, workoutId: String? = null) {
+    fun startIfEnabled(
+        seconds: Int? = null,
+        label: String? = null,
+        workoutId: String? = null,
+        next: RestNext? = null,
+    ) {
         val settings = prefs.state.value
-        if (settings.enabled) start(seconds ?: settings.seconds, label, workoutId)
+        if (settings.enabled) start(seconds ?: settings.seconds, label, workoutId, next)
     }
 
-    fun start(seconds: Int, label: String? = null, workoutId: String? = null) {
-        // A rest already running means this is an adjustment, not a new rest,
-        // and the service is already up. Asking again from a notification
-        // action would be a foreground start from the background, which the
-        // system is entitled to refuse.
+    /**
+     * Starts a rest described entirely by its arguments. Nothing is carried
+     * over from a rest already running: a null [next] means "another set of
+     * the same", and inheriting the last rest's "time for bench press" would
+     * turn that into a lie. Adjusting a running rest goes through [adjust],
+     * which passes everything along explicitly.
+     */
+    fun start(
+        seconds: Int,
+        label: String? = null,
+        workoutId: String? = null,
+        next: RestNext? = null,
+    ) {
+        // A rest already running means the service is already up. Asking again
+        // from a notification action would be a foreground start from the
+        // background, which the system is entitled to refuse.
         val alreadyRunning = _state.value != null
-        val carriedLabel = label ?: _state.value?.label
-        // +15s from the notification comes through here with nothing but a
-        // length, and it is still the same rest, from the same session.
-        val carriedWorkoutId = workoutId ?: _state.value?.workoutId
 
         countdown?.cancel()
         val total = seconds.coerceIn(MIN_REST_SECONDS, MAX_REST_SECONDS)
         val endsAtMillis = System.currentTimeMillis() + total * 1000L
-        _state.value = RestState(total, total, endsAtMillis, carriedLabel, carriedWorkoutId)
+        _state.value = RestState(total, total, endsAtMillis, label, workoutId, next)
 
         if (!alreadyRunning) RestTimerService.start(context)
 
@@ -95,20 +119,27 @@ class RestTimer(
                     remainingSeconds = ceil(millisLeft / 1000.0).toInt(),
                     totalSeconds = total,
                     endsAtMillis = endsAtMillis,
-                    label = carriedLabel,
-                    workoutId = carriedWorkoutId,
+                    label = label,
+                    workoutId = workoutId,
+                    next = next,
                 )
                 delay(TICK_MILLIS)
             }
             _state.value = null
-            announce(carriedLabel, carriedWorkoutId)
+            announce(label, workoutId, next)
         }
     }
 
     /** Lengthens or shortens the running rest. No-op when nothing is running. */
     fun adjust(deltaSeconds: Int) {
-        val left = _state.value?.remainingSeconds ?: return
-        start(left + deltaSeconds)
+        val current = _state.value ?: return
+        // Still the same rest, from the same set, leading to the same thing.
+        start(
+            seconds = current.remainingSeconds + deltaSeconds,
+            label = current.label,
+            workoutId = current.workoutId,
+            next = current.next,
+        )
     }
 
     fun stop() {
@@ -117,9 +148,9 @@ class RestTimer(
         _state.value = null
     }
 
-    private fun announce(label: String?, workoutId: String?) {
+    private fun announce(label: String?, workoutId: String?, next: RestNext?) {
         vibrate()
-        RestNotifications.postDone(context, label, workoutId)
+        RestNotifications.postDone(context, label, workoutId, next)
     }
 
     private fun vibrate() {

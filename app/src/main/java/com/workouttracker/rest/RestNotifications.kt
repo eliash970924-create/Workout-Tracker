@@ -93,16 +93,24 @@ object RestNotifications {
     }
 
     /** Fired once, when the rest is up. */
-    fun postDone(context: Context, label: String?, workoutId: String?) {
+    fun postDone(context: Context, label: String?, workoutId: String?, next: RestNext?) {
         ensureChannels(context)
         val notification = NotificationCompat.Builder(context, DONE_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Rest over")
-            .setContentText(label?.let { "Time for your next set of $it." } ?: "Time for your next set.")
+            .setContentText(
+                next?.message
+                    ?: label?.let { "Time for your next set of $it." }
+                    ?: "Time for your next set."
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
-            .setContentIntent(openSession(context, workoutId, label, DONE_INTENT))
+            // Where the message says to go: the next exercise once this one is
+            // finished, or the session when there is nothing left in it.
+            .setContentIntent(
+                openSession(context, workoutId, if (next != null) next.exercise else label, DONE_INTENT)
+            )
             .build()
         try {
             NotificationManagerCompat.from(context).notify(DONE_ID, notification)

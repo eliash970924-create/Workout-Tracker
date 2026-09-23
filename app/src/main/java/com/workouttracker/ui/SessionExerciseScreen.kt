@@ -3,6 +3,8 @@ package com.workouttracker.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Straighten
 import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -65,10 +68,12 @@ import com.workouttracker.data.ExerciseMetric
 import com.workouttracker.data.SetEntry
 import com.workouttracker.data.SetWithSession
 import com.workouttracker.data.WorkoutRepository
+import com.workouttracker.rest.RestNext
 import com.workouttracker.rest.RestPrefs
 import com.workouttracker.rest.RestSettings
 import com.workouttracker.rest.RestTimer
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
@@ -81,11 +86,36 @@ import kotlinx.coroutines.launch
  */
 fun exerciseOrder(sets: List<SetEntry>): List<String> = sets.map { it.exercise }.distinct()
 
-/** The exercise after [current] in the session, or null when it is the last one. */
-fun nextExercise(sets: List<SetEntry>, current: String): String? {
+/**
+ * The session's other exercises that still have a set to do, in the order to
+ * suggest them: the ones after [current] first, then round to the ones before.
+ *
+ * Wrapping round is the point. A busy machine sends you ahead to the next
+ * exercise, and when that one is finished the one you skipped is still
+ * waiting -- "the one after this" would say the session was over. Exercises
+ * already finished are left out, so jumping back to one you did first does not
+ * send you to it again.
+ */
+fun remainingExercises(sets: List<SetEntry>, current: String): List<String> {
     val order = exerciseOrder(sets)
+    val unfinished = sets.filter { !it.completed }.map { it.exercise }.toSet()
     val index = order.indexOf(current)
-    return if (index < 0 || index == order.lastIndex) null else order[index + 1]
+    val rotated = if (index < 0) order else order.drop(index + 1) + order.take(index)
+    return rotated.filter { it != current && it in unfinished }
+}
+
+/**
+ * What the rest after ticking a set of [exercise] leads to, or null when it is
+ * simply the next set of the same exercise.
+ *
+ * Only once the exercise is finished is there anything different to say, and
+ * "time for your next set of lateral raises" after the last one was wrong.
+ */
+fun restNext(sets: List<SetEntry>, exercise: String): RestNext? {
+    if (sets.any { it.exercise == exercise && !it.completed }) return null
+    val following = remainingExercises(sets, exercise).firstOrNull()
+        ?: return RestNext("That was the last set of the session.", exercise = null)
+    return RestNext("Time for $following.", exercise = following)
 }
 
 /** The most recent earlier session of an exercise, for the "last time" card. */
@@ -214,10 +244,15 @@ class SessionExerciseViewModel(
             // exercise's own length here rather than from a cached flow, so a
             // rest just changed in the dialog applies to this very set.
             if (completed) {
+                // Read fresh rather than from [sets]: the tick just written may
+                // not have come round the flow yet, and whether it was the last
+                // set of the exercise is exactly what it decides.
+                val session = repository.observeSets(workoutId).first()
                 restTimer.startIfEnabled(
                     seconds = repository.restSecondsFor(exercise),
                     label = exercise,
                     workoutId = workoutId,
+                    next = restNext(session, exercise),
                 )
             }
         }
@@ -263,7 +298,7 @@ fun SessionExerciseScreen(
     val metric = metricOverride ?: ExerciseCatalog.metricFor(exercise) ?: ExerciseMetric.DEFAULT
 
     val sets = remember(allSets, exercise) { allSets.filter { it.exercise == exercise } }
-    val next = remember(allSets, exercise) { nextExercise(allSets, exercise) }
+    val remaining = remember(allSets, exercise) { remainingExercises(allSets, exercise) }
     val finished = sets.isNotEmpty() && sets.all { it.completed }
 
     // Drawing order, owned here so a drag lands where it was dropped rather
@@ -388,8 +423,8 @@ fun SessionExerciseScreen(
             if (finished) {
                 item {
                     FinishedCard(
-                        next = next,
-                        onNext = { next?.let(onOpenExercise) },
+                        remaining = remaining,
+                        onOpen = onOpenExercise,
                         onBack = onBack,
                     )
                 }
@@ -568,9 +603,15 @@ private fun LastTimeCard(previous: PreviousSession, onCopy: () -> Unit) {
     }
 }
 
-/** Offers the next exercise once every set here is ticked off. */
+/**
+ * Once every set here is ticked off: the obvious next exercise as the big
+ * button, and the rest of what is left as one-tap alternatives underneath, for
+ * when the obvious one is not the one you are going to do -- a machine is
+ * taken, or you would rather.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FinishedCard(next: String?, onNext: () -> Unit, onBack: () -> Unit) {
+private fun FinishedCard(remaining: List<String>, onOpen: (String) -> Unit, onBack: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -580,9 +621,10 @@ private fun FinishedCard(next: String?, onNext: () -> Unit, onBack: () -> Unit) 
         Column(Modifier.padding(16.dp)) {
             Text("All sets done", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
+            val next = remaining.firstOrNull()
             if (next == null) {
                 Text(
-                    "That was the last exercise in this session.",
+                    "That's everything in this session.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(12.dp))
@@ -590,7 +632,24 @@ private fun FinishedCard(next: String?, onNext: () -> Unit, onBack: () -> Unit) 
             } else {
                 Text("Next up: $next", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = onNext) { Text("Go to $next") }
+                Button(onClick = { onOpen(next) }) { Text("Go to $next") }
+                val others = remaining.drop(1)
+                if (others.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Or pick another:",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        others.forEach { exercise ->
+                            AssistChip(
+                                onClick = { onOpen(exercise) },
+                                label = { Text(exercise) },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
