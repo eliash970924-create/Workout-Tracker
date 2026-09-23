@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
@@ -433,7 +432,6 @@ private fun ExerciseRow(
     dragHandle: Modifier,
 ) {
     val done = sets.count { it.completed }
-    val finished = sets.isNotEmpty() && done == sets.size
     var menuOpen by remember { mutableStateOf(false) }
 
     Card(
@@ -455,13 +453,7 @@ private fun ExerciseRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (finished) {
-                Icon(
-                    Icons.Default.Check,
-                    contentDescription = "All sets done",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
+            if (sets.isNotEmpty()) SetProgressPie(done = done, total = sets.size)
             Box {
                 IconButton(onClick = { menuOpen = true }, modifier = dragHandle) {
                     Icon(Icons.Default.MoreVert, contentDescription = "Exercise options")
