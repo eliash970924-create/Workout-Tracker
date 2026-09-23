@@ -33,6 +33,7 @@ object Routes {
     const val WORKOUT_DETAIL = "workout/{workoutId}"
     const val SESSION_EXERCISE = "workout/{workoutId}/exercise/{exercise}"
     const val EXERCISE_HISTORY = "history/{exercise}"
+    const val REST_OVERRIDES = "settings/rests"
 
     fun workout(id: String) = "workout/$id"
 
@@ -117,7 +118,12 @@ fun WorkoutNavHost(
                 )
             }
             composable(Routes.SETTINGS) {
-                SettingsScreen()
+                SettingsScreen(
+                    onOpenRestOverrides = { navController.navigate(Routes.REST_OVERRIDES) },
+                )
+            }
+            composable(Routes.REST_OVERRIDES) {
+                RestOverridesScreen(onBack = { navController.popBackStack() })
             }
             composable(
                 route = Routes.WORKOUT_DETAIL,

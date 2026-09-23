@@ -78,8 +78,9 @@ automatic background sync to a private folder in your Google Drive.
   clock icon on their screen, because deadlifts need longer than curls; the
   override syncs, and clearing it goes back to the default. The exercise's own
   screen shows the length it will use, in the accent colour when that length is
-  its own rather than the default, and Settings lists every exercise that has
-  one so they can be found and cleared in one place. The countdown also
+  its own rather than the default, and **Settings → Rest per exercise** lists
+  every exercise that has one, on a screen of its own so the list can grow:
+  tap one to change it, or clear it (with an undo). The countdown also
   runs in the notification shade, with +15s and Skip on it — tapping it opens
   the exercise you were resting from. A foreground
   service keeps it alive for the length of the rest, typed `specialUse`

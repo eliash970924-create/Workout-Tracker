@@ -10,6 +10,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -25,8 +26,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -34,7 +35,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -243,13 +243,9 @@ class SettingsViewModel(
 
     fun setRestSeconds(seconds: Int) = restPrefs.setSeconds(seconds)
 
-    /** Exercises that have a rest length of their own, so they can be seen. */
+    /** Exercises with a rest length of their own, counted on the way in. */
     val restOverrides: StateFlow<List<RestOverride>> = repository.observeRestOverrides()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    fun clearRestFor(exercise: String) {
-        viewModelScope.launch { repository.setRestSeconds(exercise, null) }
-    }
 
     fun setAutoSync(enabled: Boolean) {
         prefs.setAutoSync(enabled)
@@ -307,7 +303,7 @@ private fun Note(text: String, error: Boolean = false) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(onOpenRestOverrides: () -> Unit) {
     val viewModel = appViewModel { app ->
         SettingsViewModel(app, app.syncPrefs, app.restPrefs, app.syncManager, app.repository)
     }
@@ -430,41 +426,36 @@ fun SettingsScreen() {
                                 },
                             )
                         }
-                        // Per-exercise rests were only visible from inside the
-                        // exercise that had one, which made them easy to set
-                        // and then forget about.
-                        if (restOverrides.isNotEmpty()) {
-                            Spacer(Modifier.height(16.dp))
-                            Text(
-                                "These exercises have their own",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            restOverrides.forEach { override ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        override.name,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Text(
-                                        formatCountdown(override.seconds),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                    IconButton(
-                                        onClick = { viewModel.clearRestFor(override.exercise) },
-                                    ) {
-                                        Icon(
-                                            Icons.Outlined.Close,
-                                            contentDescription =
-                                                "Use the default for ${override.name}",
-                                        )
-                                    }
-                                }
+                        // One row, however many exercises have their own rest:
+                        // the list lives on its own screen, where it can be as
+                        // long as it gets without swamping this one.
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(onClick = onOpenRestOverrides)
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Rest per exercise",
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    when (val count = restOverrides.size) {
+                                        0 -> "None yet. Every exercise uses the length above."
+                                        1 -> "1 exercise has its own"
+                                        else -> "$count exercises have their own"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                            )
                         }
                     }
                 }
