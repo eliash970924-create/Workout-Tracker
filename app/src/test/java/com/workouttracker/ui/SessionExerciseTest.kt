@@ -56,6 +56,25 @@ class SessionExerciseTest {
     }
 
     @Test
+    fun `skipping several and finishing the last one leads back to the first skipped`() {
+        // A, B, C, D, E. A done; B and C skipped because the machines were
+        // taken; D done; E, the last in the list, just finished.
+        val sets = listOf(
+            set("a", "A", 0, completed = true),
+            set("b", "B", 1),
+            set("c", "C", 2),
+            set("d", "D", 3, completed = true),
+            set("e", "E", 4, completed = true),
+        )
+
+        // Not "the session is over": B is next up, and C is offered alongside.
+        assertEquals(listOf("B", "C"), remainingExercises(sets, "E"))
+        // And the rest after E's last set says so, and opens B.
+        assertEquals("Time for B.", restNext(sets, "E")?.message)
+        assertEquals("B", restNext(sets, "E")?.exercise)
+    }
+
+    @Test
     fun `finished exercises are not suggested again`() {
         val sets = listOf(
             set("s1", "Barbell Bench Press", 0, completed = true),
