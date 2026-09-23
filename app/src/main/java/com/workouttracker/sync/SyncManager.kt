@@ -10,12 +10,16 @@ import kotlinx.serialization.json.Json
 /**
  * One round of two-way sync with Google Drive:
  *
- *  1. pull the snapshot stored in the app data folder (if any),
- *  2. merge it into the local database, newest edit per row wins,
- *  3. push the merged result back.
+ *  1. ask Drive for the backup's checksum -- not its content -- and work out
+ *     locally whether the log has changed since the last round ([planSync]),
+ *  2. if Drive changed, pull the snapshot and merge it in, newest edit per row
+ *     winning,
+ *  3. if either side changed, push the merged result back.
  *
- * Because every row carries an `updatedAt` and deletes are tombstones, running
- * this on two devices in any order converges on the same data.
+ * A round where nothing changed costs one small request rather than the whole
+ * log each way. Because every row carries an `updatedAt` and deletes are
+ * tombstones, running this on two devices in any order converges on the same
+ * data.
  */
 class SyncManager(
     private val context: Context,
@@ -53,10 +57,21 @@ class SyncManager(
             }
             prefs.setConnected(true)
 
-            val pulled = pullRemote(token)
+            val remote = findRemote(token)
+            val local = repository.snapshot()
+            val plan = planSync(
+                remoteExists = remote != null,
+                remoteChecksum = remote?.md5,
+                lastRemoteChecksum = prefs.lastRemoteChecksum,
+                localFingerprint = snapshotFingerprint(local, json),
+                lastLocalFingerprint = prefs.lastLocalFingerprint,
+            )
+
             var merged = 0
-            if (pulled != null) {
-                val remote = runCatching { json.decodeFromString(Snapshot.serializer(), pulled.body) }.getOrNull()
+            var result = local
+            if (plan.download && remote != null) {
+                val body = drive.download(token, remote.id)
+                val pulled = runCatching { json.decodeFromString(Snapshot.serializer(), body) }.getOrNull()
                     ?: return@withLock fail(
                         SyncError(
                             "The backup on Drive is unreadable",
@@ -65,7 +80,7 @@ class SyncManager(
                         ),
                         retryable = false,
                     )
-                if (remote.version > Snapshot.CURRENT_VERSION) {
+                if (pulled.version > Snapshot.CURRENT_VERSION) {
                     // Written by a newer install. Merging would silently drop
                     // whatever fields this version cannot parse, and uploading
                     // would overwrite them, so stop instead.
@@ -77,18 +92,26 @@ class SyncManager(
                         retryable = false,
                     )
                 }
-                merged = repository.merge(remote)
+                merged = repository.merge(pulled)
+                result = repository.snapshot()
             }
 
-            val payload = json.encodeToString(Snapshot.serializer(), repository.snapshot())
-            val uploadedId = drive.upload(token, pulled?.fileId, payload)
-            if (uploadedId.isNotEmpty()) prefs.backupFileId = uploadedId
+            if (plan.upload) {
+                val payload = json.encodeToString(Snapshot.serializer(), result)
+                val uploaded = drive.upload(token, remote?.id, payload)
+                if (uploaded.id.isNotEmpty()) prefs.backupFileId = uploaded.id
+                prefs.lastRemoteChecksum = uploaded.md5
+            }
+            // Recorded only once the round has succeeded, so a failure part way
+            // through leaves the last good state standing and the next round
+            // tries again rather than concluding there is nothing to do.
+            prefs.lastLocalFingerprint = snapshotFingerprint(result, json)
 
             prefs.recordSuccess(now())
             Outcome.Success(merged)
         } catch (e: Exception) {
             // Network blips and expired tokens land here and are worth another
-            // attempt; a missing backup file is not, since pullRemote already
+            // attempt; a missing backup file is not, since findRemote already
             // re-looked it up and found nothing.
             fail(SyncErrors.fromException(e), retryable = e !is DriveHttpException || e.code != 404)
         } finally {
@@ -96,14 +119,16 @@ class SyncManager(
         }
     }
 
-    private class Pulled(val fileId: String, val body: String)
-
-    /** Downloads the existing backup, or returns null if there isn't one yet. */
-    private suspend fun pullRemote(token: String): Pulled? {
+    /**
+     * The backup on Drive and its checksum, or null if there isn't one yet.
+     * Only metadata: the content is downloaded separately, and only when the
+     * checksum says it changed.
+     */
+    private suspend fun findRemote(token: String): RemoteBackup? {
         val cachedId = prefs.backupFileId
         if (cachedId != null) {
             try {
-                return Pulled(cachedId, drive.download(token, cachedId))
+                return RemoteBackup(cachedId, drive.checksum(token, cachedId))
             } catch (e: DriveHttpException) {
                 // The cached id can outlive the file (user cleared app data on
                 // Drive, restored a different account). Only a missing file is
@@ -112,9 +137,9 @@ class SyncManager(
                 prefs.backupFileId = null
             }
         }
-        val foundId = drive.findBackupId(token) ?: return null
-        prefs.backupFileId = foundId
-        return Pulled(foundId, drive.download(token, foundId))
+        val found = drive.findBackup(token) ?: return null
+        prefs.backupFileId = found.id
+        return found
     }
 
     private fun fail(error: SyncError, retryable: Boolean): Outcome.Failed {

@@ -11,8 +11,16 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Minimal Drive v3 client over the REST API — just the three calls we need
- * (find / download / upload) against the hidden `appDataFolder` space. Using
+ * The backup file on Drive, and the MD5 checksum Drive keeps of its content.
+ * The checksum is what lets a sync tell whether the file changed without
+ * downloading it. Null if Drive did not report one, which is treated as
+ * "changed".
+ */
+data class RemoteBackup(val id: String, val md5: String?)
+
+/**
+ * Minimal Drive v3 client over the REST API — just the calls we need (find,
+ * checksum, download, upload) against the hidden `appDataFolder` space. Using
  * OkHttp directly keeps the Google API client library (and several MB of
  * transitive dependencies) out of the app.
  */
@@ -32,16 +40,32 @@ class DriveClient(
             .build()
     }
 
-    /** Drive file id of an existing backup, or null on first ever sync. */
-    suspend fun findBackupId(token: String): String? = withContext(Dispatchers.IO) {
-        val url = "$FILES?spaces=appDataFolder&fields=files(id)" +
+    /** The existing backup, or null on the first ever sync. */
+    suspend fun findBackup(token: String): RemoteBackup? = withContext(Dispatchers.IO) {
+        val url = "$FILES?spaces=appDataFolder&fields=files(id,md5Checksum)" +
             "&q=" + urlEncode("name = '$BACKUP_FILE_NAME' and trashed = false")
         val request = Request.Builder().url(url).header("Authorization", "Bearer $token").build()
         http.newCall(request).execute().use { response ->
             val body = response.body.string()
             if (!response.isSuccessful) throw failure("list", response.code, body)
             val files = JSONObject(body).optJSONArray("files")
-            if (files == null || files.length() == 0) null else files.getJSONObject(0).getString("id")
+            if (files == null || files.length() == 0) null else backupFrom(files.getJSONObject(0))
+        }
+    }
+
+    /**
+     * The checksum of the backup's content, without the content: a few hundred
+     * bytes, against a download of the whole log.
+     */
+    suspend fun checksum(token: String, fileId: String): String? = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("$FILES/$fileId?fields=md5Checksum")
+            .header("Authorization", "Bearer $token")
+            .build()
+        http.newCall(request).execute().use { response ->
+            val body = response.body.string()
+            if (!response.isSuccessful) throw failure("check", response.code, body)
+            JSONObject(body).optString("md5Checksum").ifEmpty { null }
         }
     }
 
@@ -57,8 +81,12 @@ class DriveClient(
         }
     }
 
-    /** Creates the backup file, or overwrites it when [fileId] is known. Returns the file id. */
-    suspend fun upload(token: String, fileId: String?, json: String): String = withContext(Dispatchers.IO) {
+    /**
+     * Creates the backup file, or overwrites it when [fileId] is known. Returns
+     * the file as Drive now has it, checksum included, so the next sync can
+     * tell whether anyone has changed it since.
+     */
+    suspend fun upload(token: String, fileId: String?, json: String): RemoteBackup = withContext(Dispatchers.IO) {
         val request = if (fileId == null) {
             val metadata = JSONObject()
                 .put("name", BACKUP_FILE_NAME)
@@ -70,13 +98,13 @@ class DriveClient(
                 .addPart(json.toRequestBody(JSON))
                 .build()
             Request.Builder()
-                .url("$UPLOAD?uploadType=multipart&fields=id")
+                .url("$UPLOAD?uploadType=multipart&fields=id,md5Checksum")
                 .header("Authorization", "Bearer $token")
                 .post(multipart)
                 .build()
         } else {
             Request.Builder()
-                .url("$UPLOAD/$fileId?uploadType=media&fields=id")
+                .url("$UPLOAD/$fileId?uploadType=media&fields=id,md5Checksum")
                 .header("Authorization", "Bearer $token")
                 .patch(json.toRequestBody(JSON))
                 .build()
@@ -84,9 +112,18 @@ class DriveClient(
         http.newCall(request).execute().use { response ->
             val body = response.body.string()
             if (!response.isSuccessful) throw failure("upload", response.code, body)
-            JSONObject(body).optString("id").ifEmpty { fileId.orEmpty() }
+            val uploaded = JSONObject(body)
+            RemoteBackup(
+                id = uploaded.optString("id").ifEmpty { fileId.orEmpty() },
+                md5 = uploaded.optString("md5Checksum").ifEmpty { null },
+            )
         }
     }
+
+    private fun backupFrom(file: JSONObject) = RemoteBackup(
+        id = file.getString("id"),
+        md5 = file.optString("md5Checksum").ifEmpty { null },
+    )
 
     /**
      * Builds an exception carrying an explanation rather than a bare status

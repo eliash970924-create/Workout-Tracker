@@ -52,6 +52,23 @@ class SyncPrefs(context: Context) {
         get() = prefs.getString(KEY_FILE_ID, null)
         set(value) = prefs.edit().putString(KEY_FILE_ID, value).apply()
 
+    /**
+     * Drive's checksum of the backup as it stood after this device last
+     * synced. If Drive still reports it, no other device has synced since and
+     * there is nothing new to download.
+     */
+    var lastRemoteChecksum: String?
+        get() = prefs.getString(KEY_REMOTE_CHECKSUM, null)
+        set(value) = prefs.edit().putString(KEY_REMOTE_CHECKSUM, value).apply()
+
+    /**
+     * Fingerprint of the local log as it stood after the last sync. If the log
+     * still matches it, there is nothing new to upload.
+     */
+    var lastLocalFingerprint: String?
+        get() = prefs.getString(KEY_LOCAL_FINGERPRINT, null)
+        set(value) = prefs.edit().putString(KEY_LOCAL_FINGERPRINT, value).apply()
+
     fun setAutoSync(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_AUTO, enabled).apply()
         _state.value = _state.value.copy(autoSyncEnabled = enabled)
@@ -86,7 +103,15 @@ class SyncPrefs(context: Context) {
     }
 
     fun clearConnection() {
-        prefs.edit().remove(KEY_FILE_ID).putBoolean(KEY_CONNECTED, false).apply()
+        // Forgetting what was synced as well: whoever connects next may be a
+        // different account with a different file, and the first sync should
+        // then move everything rather than conclude nothing changed.
+        prefs.edit()
+            .remove(KEY_FILE_ID)
+            .remove(KEY_REMOTE_CHECKSUM)
+            .remove(KEY_LOCAL_FINGERPRINT)
+            .putBoolean(KEY_CONNECTED, false)
+            .apply()
         _state.value = _state.value.copy(connected = false)
     }
 
@@ -98,5 +123,7 @@ class SyncPrefs(context: Context) {
         const val KEY_LAST_ERROR = "last_error"
         const val KEY_LAST_ERROR_HINT = "last_error_hint"
         const val KEY_FILE_ID = "backup_file_id"
+        const val KEY_REMOTE_CHECKSUM = "last_remote_checksum"
+        const val KEY_LOCAL_FINGERPRINT = "last_local_fingerprint"
     }
 }

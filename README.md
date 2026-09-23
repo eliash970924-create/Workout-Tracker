@@ -123,9 +123,20 @@ backup written by an older install restores correctly; an install still on
 version 1 will refuse a version 2 snapshot rather than silently dropping the
 fields it cannot read, so update every device you sync.
 
-One sync round downloads the snapshot from Drive, merges it into the local
-database, then uploads the merged result. Running it on two devices in any
-order converges on the same data.
+One sync round first asks Drive for the backup's checksum — a few hundred
+bytes, not the file — and fingerprints the local log on the phone. Then it
+moves only what changed:
+
+| Since the last round | What moves |
+| --- | --- |
+| Nothing, anywhere | Nothing |
+| You logged something | Upload only |
+| Another device synced | Download, merge, upload the merged result |
+
+So the scheduled syncs on a day you don't train cost next to no data, rather
+than the whole log each way every time (which, after a year of training, would
+have come to hundreds of megabytes a month on mobile data). Running it on two
+devices in any order still converges on the same data.
 
 It runs on two triggers, both requiring a network connection and both scheduled
 through WorkManager so Android can batch them:
