@@ -221,11 +221,13 @@ three different keys depending on how it reached the device:
 
 Two traps:
 
-- **The debug APK built by CI is useless for Drive.** Gradle generates
-  `~/.android/debug.keystore` on first use, and the CI runner is ephemeral, so
-  that APK is signed with a throwaway key that differs on every run. Its SHA-1
-  can never match what you registered. Use it to try the app offline; build
-  locally to test sync.
+- **The debug APK built by CI is only useful once CI has your key.** Without
+  it, Gradle generates a fresh `debug.keystore` on the ephemeral runner, so the
+  APK is signed with a throwaway key that differs on every run: its SHA-1 can
+  never match what you registered, and it cannot install over your existing
+  app. With the `DEBUG_KEYSTORE_BASE64` secret set (see
+  [Installing from your phone](#installing-from-your-phone)), CI signs with the
+  same key as Android Studio and both problems go away.
 - **With Play App Signing, register the app signing key, not your upload key.**
   Play re-signs your upload, so registering the upload key means sync works for
   you and fails for everyone who installs from Play.
@@ -250,6 +252,40 @@ Only the last row is worth waiting out. Note that Google shows *"it may take 5
 minutes to a few hours for settings to take effect"* when you create OAuth
 credentials — that is real, but it only explains a newly created client, never
 a mismatched SHA-1.
+
+## Installing from your phone
+
+Every build of `main` is published at one fixed link, so updating needs no PC:
+
+<https://github.com/eliash970924-create/Workout-Tracker/releases/download/latest/workout-tracker.apk>
+
+Open it on the phone, tap the download, and install. The first time, Android
+asks to allow installs from your browser (or Files); allow it once.
+
+It installs *over* the app already on the phone — your log and Drive sync
+carry on — because CI signs it with the same key Android Studio uses. That
+needs setting up once:
+
+1. **On the PC, copy your debug key as text.** In PowerShell:
+   ```powershell
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("$env:USERPROFILE\.android\debug.keystore")) | Set-Clipboard
+   ```
+   That puts it on the clipboard; there is nothing to see.
+2. **Add it to the repository as a secret.** On GitHub: the repository →
+   **Settings → Secrets and variables → Actions → New repository secret**.
+   Name `DEBUG_KEYSTORE_BASE64`, paste as the value, **Add secret**.
+3. **Rebuild once:** **Actions → Android → Run workflow → main**, or merge
+   anything. When it goes green, the link above serves that build.
+
+The key never leaves GitHub's secret store: workflow logs mask it, and
+builds of pull requests from forks never receive it. A published APK carries
+only the key's public half.
+
+If the phone ever says **"App not installed"** or that the package conflicts,
+the APK and the installed app were signed with different keys — typically
+because the secret is missing or was taken from a different PC. Do **not**
+uninstall to get round it: that deletes the log. Fix the key instead, or
+install from Android Studio as before.
 
 ## Release builds
 

@@ -35,6 +35,17 @@ android {
     }
 
     signingConfigs {
+        // CI signs debug builds with the owner's own debug key when it has one
+        // (see "Installing from your phone" in the README), so the APK it
+        // publishes installs as an update over a build from Android Studio:
+        // same key, same app, same data, and Drive sign-in still matches the
+        // SHA-1 registered for it. Without one, the runner makes a throwaway
+        // key per run and nothing it builds can update an installed app.
+        // Alias and passwords stay the debug defaults, which is what Android
+        // Studio generated the key with.
+        getByName("debug") {
+            System.getenv("DEBUG_KEYSTORE_FILE")?.let { storeFile = file(it) }
+        }
         create("release") {
             if (releaseStoreFile != null) {
                 storeFile = file(releaseStoreFile)

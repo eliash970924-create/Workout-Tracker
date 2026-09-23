@@ -4,10 +4,22 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # So a build can be rerun from the Actions tab -- from a phone included --
+  # for instance after adding the signing key below.
+  workflow_dispatch:
+
+# One run per branch at a time, so two merges in quick succession cannot
+# interleave their replacing of the "latest" release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # To replace the "latest" release with each build of main.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +37,22 @@ jobs:
       - name: Unit tests
         run: ./gradlew testDebugUnitTest
 
+      # The owner's debug key, from the DEBUG_KEYSTORE_BASE64 secret, so the
+      # APK installs over a build from Android Studio instead of clashing with
+      # it. Missing -- on a fork, or before it is added -- the build still
+      # runs, signed with a throwaway key, and is simply not published.
+      - name: Use the owner's debug key
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            echo "$DEBUG_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/debug.keystore"
+            echo "DEBUG_KEYSTORE_FILE=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
+            echo "SIGNED_WITH_OWNER_KEY=true" >> "$GITHUB_ENV"
+          else
+            echo "No DEBUG_KEYSTORE_BASE64 secret; signing with a throwaway key."
+          fi
+
       - name: Assemble debug APK
         run: ./gradlew assembleDebug
 
@@ -39,6 +67,27 @@ jobs:
           name: workout-tracker-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      # A fixed link to the newest build of main, for installing straight
+      # from a phone: .../releases/download/latest/workout-tracker.apk.
+      # Only builds signed with the owner's key are published; any other
+      # would not install over the app already on the phone.
+      - name: Publish as the latest release
+        if: >-
+          env.SIGNED_WITH_OWNER_KEY == 'true'
+          && github.ref == 'refs/heads/main'
+          && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk workout-tracker.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest workout-tracker.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Latest build" \
+            --notes "Built from $(git log -1 --format='%h %s')"
 
       - name: Upload test reports
         if: failure()
