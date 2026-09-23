@@ -7,6 +7,7 @@ import android.content.Intent
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.workouttracker.MainActivity
 import com.workouttracker.R
 import com.workouttracker.ui.formatCountdown
@@ -45,10 +46,19 @@ object RestNotifications {
         ensureChannels(context)
 
         val progress = NotificationCompat.ProgressStyle()
-            .setStyledByProgress(false)
-            .setProgress(state.totalSeconds - state.remainingSeconds)
+            // Styled by progress is what draws the part of the bar past the
+            // current value faded. With it off, the whole bar is one colour
+            // whatever the value, and a countdown bar that never changes says
+            // nothing -- which is how this looked until it was turned back on.
+            .setStyledByProgress(true)
+            // The time left, not the time gone, so the bar drains as the
+            // countdown next to it does rather than filling against it.
+            .setProgress(state.remainingSeconds)
             .setProgressSegments(
-                listOf(NotificationCompat.ProgressStyle.Segment(state.totalSeconds))
+                listOf(
+                    NotificationCompat.ProgressStyle.Segment(state.totalSeconds)
+                        .setColor(ContextCompat.getColor(context, R.color.dumbbell_bar)),
+                )
             )
 
         val left = formatCountdown(state.remainingSeconds)

@@ -1,4 +1,9 @@
 <resources>
     <!-- The charcoal the dumbbell sits on. -->
     <color name="ic_launcher_background">#1C1C1C</color>
+    <!--
+      The dumbbell's bar, from the launcher icon. The rest countdown's progress
+      bar is drawn in it so the notification reads as this app's at a glance.
+    -->
+    <color name="dumbbell_bar">#1B6C8C</color>
 </resources>
