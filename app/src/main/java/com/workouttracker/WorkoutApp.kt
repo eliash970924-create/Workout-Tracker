@@ -29,7 +29,8 @@ class WorkoutApp : Application() {
         WorkoutRepository(
             db = database,
             syncTrigger = SyncTrigger {
-                if (syncPrefs.state.value.autoSyncEnabled) SyncScheduler.requestSync(this)
+                val sync = syncPrefs.state.value
+                if (sync.autoSyncEnabled) SyncScheduler.requestSync(this, sync)
             },
         )
     }

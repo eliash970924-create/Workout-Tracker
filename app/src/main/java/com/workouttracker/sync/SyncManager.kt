@@ -71,7 +71,11 @@ class SyncManager(
             var result = local
             if (plan.download && remote != null) {
                 val body = drive.download(token, remote.id)
-                val pulled = runCatching { json.decodeFromString(Snapshot.serializer(), body) }.getOrNull()
+                // Decompressed only if it is compressed: a backup written before
+                // compression is plain JSON, and stays so until the next upload.
+                val pulled = runCatching {
+                    json.decodeFromString(Snapshot.serializer(), gunzipIfCompressed(body).decodeToString())
+                }.getOrNull()
                     ?: return@withLock fail(
                         SyncError(
                             "The backup on Drive is unreadable",
@@ -97,7 +101,9 @@ class SyncManager(
             }
 
             if (plan.upload) {
-                val payload = json.encodeToString(Snapshot.serializer(), result)
+                val payload = compressVerified(
+                    json.encodeToString(Snapshot.serializer(), result).toByteArray()
+                )
                 val uploaded = drive.upload(token, remote?.id, payload)
                 if (uploaded.id.isNotEmpty()) prefs.backupFileId = uploaded.id
                 prefs.lastRemoteChecksum = uploaded.md5

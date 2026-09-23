@@ -28,10 +28,17 @@ class DriveClient(
     private val http: OkHttpClient = defaultClient(),
 ) {
     companion object {
+        /**
+         * Still ".json" although the content is now gzipped: the name is how
+         * an existing backup is found, and renaming it would strand the one
+         * already on Drive. It sits in a folder nobody browses; the content is
+         * told apart by its first bytes, not its name.
+         */
         const val BACKUP_FILE_NAME = "workout-tracker-backup.json"
         private const val FILES = "https://www.googleapis.com/drive/v3/files"
         private const val UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
         private val JSON = "application/json; charset=utf-8".toMediaType()
+        private val GZIP = "application/gzip".toMediaType()
 
         private fun defaultClient() = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -69,15 +76,17 @@ class DriveClient(
         }
     }
 
-    suspend fun download(token: String, fileId: String): String = withContext(Dispatchers.IO) {
+    /** The backup's raw bytes, compressed or not; see [gunzipIfCompressed]. */
+    suspend fun download(token: String, fileId: String): ByteArray = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("$FILES/$fileId?alt=media")
             .header("Authorization", "Bearer $token")
             .build()
         http.newCall(request).execute().use { response ->
-            val body = response.body.string()
-            if (!response.isSuccessful) throw failure("download", response.code, body)
-            body
+            if (!response.isSuccessful) {
+                throw failure("download", response.code, response.body.string())
+            }
+            response.body.bytes()
         }
     }
 
@@ -86,16 +95,17 @@ class DriveClient(
      * the file as Drive now has it, checksum included, so the next sync can
      * tell whether anyone has changed it since.
      */
-    suspend fun upload(token: String, fileId: String?, json: String): RemoteBackup = withContext(Dispatchers.IO) {
+    suspend fun upload(token: String, fileId: String?, content: ByteArray): RemoteBackup = withContext(Dispatchers.IO) {
         val request = if (fileId == null) {
             val metadata = JSONObject()
                 .put("name", BACKUP_FILE_NAME)
+                .put("mimeType", "application/gzip")
                 .put("parents", listOf("appDataFolder").let { org.json.JSONArray(it) })
                 .toString()
             val multipart = MultipartBody.Builder()
                 .setType("multipart/related".toMediaType())
                 .addPart(metadata.toRequestBody(JSON))
-                .addPart(json.toRequestBody(JSON))
+                .addPart(content.toRequestBody(GZIP))
                 .build()
             Request.Builder()
                 .url("$UPLOAD?uploadType=multipart&fields=id,md5Checksum")
@@ -106,7 +116,7 @@ class DriveClient(
             Request.Builder()
                 .url("$UPLOAD/$fileId?uploadType=media&fields=id,md5Checksum")
                 .header("Authorization", "Bearer $token")
-                .patch(json.toRequestBody(JSON))
+                .patch(content.toRequestBody(GZIP))
                 .build()
         }
         http.newCall(request).execute().use { response ->

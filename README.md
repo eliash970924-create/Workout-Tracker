@@ -138,6 +138,19 @@ than the whole log each way every time (which, after a year of training, would
 have come to hundreds of megabytes a month on mobile data). Running it on two
 devices in any order still converges on the same data.
 
+When it does upload, the log goes up **gzipped**, about six times smaller: a
+year of training is roughly 270 KB rather than 1.6 MB. Each upload is
+decompressed and compared byte for byte with the original before it is sent,
+and a mismatch fails the sync rather than replacing the copy on Drive. Reading
+tells a compressed file from a plain one by its first two bytes, so a backup
+written before compression still restores. The file keeps its `.json` name,
+because that name is how an existing backup is found. Backup files exported
+from Settings stay plain, readable JSON.
+
+**Wi-Fi only**, in Settings, makes the scheduled and after-edit syncs wait for
+an unmetered connection. *Sync now* still runs on mobile data: tapping it is a
+choice made there and then.
+
 It runs on two triggers, both requiring a network connection and both scheduled
 through WorkManager so Android can batch them:
 

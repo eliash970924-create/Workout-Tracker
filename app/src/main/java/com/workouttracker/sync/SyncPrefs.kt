@@ -20,6 +20,11 @@ enum class SyncInterval(val hours: Long, val label: String) {
 data class SyncState(
     val autoSyncEnabled: Boolean = true,
     val interval: SyncInterval = SyncInterval.SIX_HOURLY,
+    /**
+     * Background syncs wait for Wi-Fi (strictly, an unmetered connection).
+     * Off by default so a new install backs up straight away.
+     */
+    val wifiOnly: Boolean = false,
     /** True once the user has granted Drive access at least once. */
     val connected: Boolean = false,
     val lastSyncAt: Long = 0L,
@@ -39,6 +44,7 @@ class SyncPrefs(context: Context) {
         SyncState(
             autoSyncEnabled = prefs.getBoolean(KEY_AUTO, true),
             interval = SyncInterval.fromHours(prefs.getLong(KEY_INTERVAL, 6)),
+            wifiOnly = prefs.getBoolean(KEY_WIFI_ONLY, false),
             connected = prefs.getBoolean(KEY_CONNECTED, false),
             lastSyncAt = prefs.getLong(KEY_LAST_SYNC, 0L),
             lastError = prefs.getString(KEY_LAST_ERROR, null)
@@ -72,6 +78,11 @@ class SyncPrefs(context: Context) {
     fun setAutoSync(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_AUTO, enabled).apply()
         _state.value = _state.value.copy(autoSyncEnabled = enabled)
+    }
+
+    fun setWifiOnly(wifiOnly: Boolean) {
+        prefs.edit().putBoolean(KEY_WIFI_ONLY, wifiOnly).apply()
+        _state.value = _state.value.copy(wifiOnly = wifiOnly)
     }
 
     fun setInterval(interval: SyncInterval) {
@@ -118,6 +129,7 @@ class SyncPrefs(context: Context) {
     private companion object {
         const val KEY_AUTO = "auto_sync"
         const val KEY_INTERVAL = "interval_hours"
+        const val KEY_WIFI_ONLY = "wifi_only"
         const val KEY_CONNECTED = "connected"
         const val KEY_LAST_SYNC = "last_sync_at"
         const val KEY_LAST_ERROR = "last_error"

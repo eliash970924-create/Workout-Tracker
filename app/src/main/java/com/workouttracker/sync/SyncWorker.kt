@@ -42,7 +42,10 @@ class SyncWorker(
  *  - a debounced one-shot after any edit, so a finished workout reaches Drive
  *    in minutes rather than hours.
  *
- * Both require a network connection; WorkManager holds them until there is one.
+ * Both require a network connection -- Wi-Fi, if the user asked for that --
+ * and WorkManager holds them until there is one. "Sync now" in Settings is not
+ * scheduled work and runs on whatever connection there is: an explicit tap is
+ * the user choosing to spend the data.
  */
 object SyncScheduler {
 
@@ -52,8 +55,12 @@ object SyncScheduler {
     /** Edits are batched for this long so a whole session is one upload. */
     private const val DEBOUNCE_MINUTES = 5L
 
-    private val constraints = Constraints.Builder()
-        .setRequiredNetworkType(NetworkType.CONNECTED)
+    private fun constraints(state: SyncState) = Constraints.Builder()
+        .setRequiredNetworkType(
+            // UNMETERED rather than "Wi-Fi": what matters is not paying for the
+            // data, and an unlimited connection is fine whatever carries it.
+            if (state.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
+        )
         .build()
 
     /** Applies the current settings; call at startup and whenever they change. */
@@ -65,22 +72,23 @@ object SyncScheduler {
             return
         }
         val request = PeriodicWorkRequestBuilder<SyncWorker>(state.interval.hours, TimeUnit.HOURS)
-            .setConstraints(constraints)
+            .setConstraints(constraints(state))
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.MINUTES)
             .build()
         workManager.enqueueUniquePeriodicWork(
             PERIODIC_WORK,
             // UPDATE keeps the existing schedule when nothing changed, so
-            // toggling settings doesn't reset the interval countdown.
+            // toggling settings doesn't reset the interval countdown -- and it
+            // does carry a changed network constraint over to the job.
             ExistingPeriodicWorkPolicy.UPDATE,
             request,
         )
     }
 
     /** Called after every local edit; REPLACE collapses a burst into one run. */
-    fun requestSync(context: Context) {
+    fun requestSync(context: Context, state: SyncState) {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
-            .setConstraints(constraints)
+            .setConstraints(constraints(state))
             .setInitialDelay(DEBOUNCE_MINUTES, TimeUnit.MINUTES)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
             .build()

@@ -261,6 +261,11 @@ class SettingsViewModel(
         SyncScheduler.applySettings(context, prefs.state.value)
     }
 
+    fun setWifiOnly(wifiOnly: Boolean) {
+        prefs.setWifiOnly(wifiOnly)
+        SyncScheduler.applySettings(context, prefs.state.value)
+    }
+
     /** Asks for Drive access, surfacing Google's consent screen when needed. */
     fun connect(onConsentRequired: (PendingIntent) -> Unit) {
         viewModelScope.launch {
@@ -531,6 +536,27 @@ fun SettingsScreen() {
                                     label = { Text(interval.label) },
                                 )
                             }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Wi-Fi only", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "Background syncs wait for Wi-Fi. Sync now still works " +
+                                        "on mobile data, since that is a choice you make there " +
+                                        "and then.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Switch(
+                                checked = state.wifiOnly,
+                                onCheckedChange = viewModel::setWifiOnly,
+                            )
                         }
                     }
                 }
