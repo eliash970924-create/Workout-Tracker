@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -33,6 +34,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -52,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.workouttracker.data.RestOverride
 import com.workouttracker.data.Snapshot
 import com.workouttracker.data.WorkoutRepository
 import com.workouttracker.data.buildCsv
@@ -69,7 +72,9 @@ import com.workouttracker.sync.SyncScheduler
 import com.workouttracker.sync.SyncState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -238,6 +243,14 @@ class SettingsViewModel(
 
     fun setRestSeconds(seconds: Int) = restPrefs.setSeconds(seconds)
 
+    /** Exercises that have a rest length of their own, so they can be seen. */
+    val restOverrides: StateFlow<List<RestOverride>> = repository.observeRestOverrides()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun clearRestFor(exercise: String) {
+        viewModelScope.launch { repository.setRestSeconds(exercise, null) }
+    }
+
     fun setAutoSync(enabled: Boolean) {
         prefs.setAutoSync(enabled)
         SyncScheduler.applySettings(context, prefs.state.value)
@@ -298,6 +311,7 @@ fun SettingsScreen() {
     val csv by viewModel.csv.collectAsStateWithLifecycle()
     val backup by viewModel.backup.collectAsStateWithLifecycle()
     val importState by viewModel.importState.collectAsStateWithLifecycle()
+    val restOverrides by viewModel.restOverrides.collectAsStateWithLifecycle()
     var showCustomRest by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -410,6 +424,42 @@ fun SettingsScreen() {
                                     )
                                 },
                             )
+                        }
+                        // Per-exercise rests were only visible from inside the
+                        // exercise that had one, which made them easy to set
+                        // and then forget about.
+                        if (restOverrides.isNotEmpty()) {
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "These exercises have their own",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            restOverrides.forEach { override ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        override.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        formatCountdown(override.seconds),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                    IconButton(
+                                        onClick = { viewModel.clearRestFor(override.exercise) },
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.Close,
+                                            contentDescription =
+                                                "Use the default for ${override.name}",
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

@@ -2,6 +2,7 @@ package com.workouttracker.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.util.UUID
@@ -413,6 +414,34 @@ class WorkoutRepository(
 
     suspend fun restSecondsFor(exercise: String): Int? =
         dao.findExerciseSettings(exercise.key())?.restSeconds
+
+    /**
+     * Every exercise with a rest length of its own, by name, so they can be
+     * seen in one place rather than only from inside the exercise that has one.
+     */
+    fun observeRestOverrides(): Flow<List<RestOverride>> =
+        combine(
+            dao.observeAllExerciseSettings(),
+            dao.observeCustomExercises(),
+        ) { settings, custom ->
+            settings.mapNotNull { row ->
+                val seconds = row.restSeconds ?: return@mapNotNull null
+                RestOverride(row.exercise, displayNameOf(row.exercise, custom), seconds)
+            }.sortedBy { it.name.lowercase() }
+        }
+
+    /**
+     * How an exercise's name is actually written. The stored key is lower-cased
+     * so that two spellings converge on one row, which makes it the wrong thing
+     * to show. The catalogue and the user's own exercises know the real
+     * spelling; anything else is title-cased as a last resort.
+     */
+    private fun displayNameOf(key: String, custom: List<CustomExercise>): String =
+        ExerciseCatalog.find(key)?.name
+            ?: custom.firstOrNull { it.name.equals(key, ignoreCase = true) }?.name
+            ?: key.split(' ').joinToString(" ") { word ->
+                word.replaceFirstChar { it.uppercase() }
+            }
 
     /** The metric [exercise] has been overridden to, or null for the default. */
     fun observeMetricOverride(exercise: String): Flow<ExerciseMetric?> =

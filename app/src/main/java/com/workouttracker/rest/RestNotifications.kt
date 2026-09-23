@@ -28,6 +28,10 @@ object RestNotifications {
     private const val RUNNING_CHANNEL = "rest_running"
     private const val DONE_CHANNEL = "rest_timer"
 
+    // Request codes 1 and 2 belong to the +15s and Skip actions.
+    private const val RUNNING_INTENT = 3
+    private const val DONE_INTENT = 4
+
     /**
      * The countdown, as an ongoing notification.
      *
@@ -72,14 +76,14 @@ object RestNotifications {
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(openApp(context))
+            .setContentIntent(openSession(context, state.workoutId, state.label, RUNNING_INTENT))
             .addAction(0, "+15s", action(context, RestActionReceiver.ACTION_EXTEND, 1))
             .addAction(0, "Skip", action(context, RestActionReceiver.ACTION_SKIP, 2))
             .build()
     }
 
     /** Fired once, when the rest is up. */
-    fun postDone(context: Context, label: String?) {
+    fun postDone(context: Context, label: String?, workoutId: String?) {
         ensureChannels(context)
         val notification = NotificationCompat.Builder(context, DONE_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
@@ -88,7 +92,7 @@ object RestNotifications {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
-            .setContentIntent(openApp(context))
+            .setContentIntent(openSession(context, workoutId, label, DONE_INTENT))
             .build()
         try {
             NotificationManagerCompat.from(context).notify(DONE_ID, notification)
@@ -116,12 +120,38 @@ object RestNotifications {
         )
     }
 
-    private fun openApp(context: Context): PendingIntent = PendingIntent.getActivity(
-        context,
-        0,
-        Intent(context, MainActivity::class.java),
-        PendingIntent.FLAG_IMMUTABLE,
-    )
+    /**
+     * Opens the exercise the rest belongs to, rather than wherever the app
+     * happens to start. A rest notification is read mid-session, and landing on
+     * the workouts list means two taps back to the set you were about to do.
+     *
+     * Falls back to simply launching the app when the rest was started before
+     * this carried a session, or by something that is not a session.
+     */
+    private fun openSession(
+        context: Context,
+        workoutId: String?,
+        exercise: String?,
+        requestCode: Int,
+    ): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java)
+            // SINGLE_TOP so tapping it reuses the activity that is already
+            // running, which is the usual case, rather than starting a second.
+            .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        if (workoutId != null) {
+            intent.putExtra(MainActivity.EXTRA_WORKOUT_ID, workoutId)
+            intent.putExtra(MainActivity.EXTRA_EXERCISE, exercise)
+        }
+        return PendingIntent.getActivity(
+            context,
+            requestCode,
+            intent,
+            // Two intents that differ only in their extras count as the same
+            // one, so without UPDATE_CURRENT every rest after the first would
+            // reuse the first one's destination.
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
 
     private fun action(context: Context, action: String, requestCode: Int): PendingIntent =
         PendingIntent.getBroadcast(

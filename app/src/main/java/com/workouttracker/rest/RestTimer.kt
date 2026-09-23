@@ -25,6 +25,11 @@ data class RestState(
     val endsAtMillis: Long,
     /** The exercise being rested from, for the notification. */
     val label: String? = null,
+    /**
+     * The session it was started in, so tapping the notification can go back
+     * to the exercise rather than dropping you on the home screen.
+     */
+    val workoutId: String? = null,
 )
 
 /**
@@ -57,23 +62,26 @@ class RestTimer(
      * timer on; [seconds] is the exercise's own rest length, or null to use the
      * default from Settings.
      */
-    fun startIfEnabled(seconds: Int? = null, label: String? = null) {
+    fun startIfEnabled(seconds: Int? = null, label: String? = null, workoutId: String? = null) {
         val settings = prefs.state.value
-        if (settings.enabled) start(seconds ?: settings.seconds, label)
+        if (settings.enabled) start(seconds ?: settings.seconds, label, workoutId)
     }
 
-    fun start(seconds: Int, label: String? = null) {
+    fun start(seconds: Int, label: String? = null, workoutId: String? = null) {
         // A rest already running means this is an adjustment, not a new rest,
         // and the service is already up. Asking again from a notification
         // action would be a foreground start from the background, which the
         // system is entitled to refuse.
         val alreadyRunning = _state.value != null
         val carriedLabel = label ?: _state.value?.label
+        // +15s from the notification comes through here with nothing but a
+        // length, and it is still the same rest, from the same session.
+        val carriedWorkoutId = workoutId ?: _state.value?.workoutId
 
         countdown?.cancel()
         val total = seconds.coerceIn(MIN_REST_SECONDS, MAX_REST_SECONDS)
         val endsAtMillis = System.currentTimeMillis() + total * 1000L
-        _state.value = RestState(total, total, endsAtMillis, carriedLabel)
+        _state.value = RestState(total, total, endsAtMillis, carriedLabel, carriedWorkoutId)
 
         if (!alreadyRunning) RestTimerService.start(context)
 
@@ -88,11 +96,12 @@ class RestTimer(
                     totalSeconds = total,
                     endsAtMillis = endsAtMillis,
                     label = carriedLabel,
+                    workoutId = carriedWorkoutId,
                 )
                 delay(TICK_MILLIS)
             }
             _state.value = null
-            announce(carriedLabel)
+            announce(carriedLabel, carriedWorkoutId)
         }
     }
 
@@ -108,9 +117,9 @@ class RestTimer(
         _state.value = null
     }
 
-    private fun announce(label: String?) {
+    private fun announce(label: String?, workoutId: String?) {
         vibrate()
-        RestNotifications.postDone(context, label)
+        RestNotifications.postDone(context, label, workoutId)
     }
 
     private fun vibrate() {

@@ -169,6 +169,15 @@ data class SessionTemplate(
     val exercises: List<String>,
 )
 
+/**
+ * An exercise that has a rest length of its own, for listing them somewhere
+ * they can be seen and cleared.
+ *
+ * [exercise] is the stored key and [name] is how it is written, which are not
+ * the same thing: the key is lower-cased so two spellings converge on one row.
+ */
+data class RestOverride(val exercise: String, val name: String, val seconds: Int)
+
 /** One line of the CSV export: a set, flattened together with its session. */
 data class ExportRow(
     @ColumnInfo(name = "workoutId") val workoutId: String,

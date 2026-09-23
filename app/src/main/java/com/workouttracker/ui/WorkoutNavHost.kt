@@ -12,6 +12,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -42,6 +43,9 @@ object Routes {
     fun exerciseHistory(exercise: String) = "history/${Uri.encode(exercise)}"
 }
 
+/** A session, and optionally an exercise in it, to open on arrival. */
+data class PendingSession(val workoutId: String, val exercise: String?)
+
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
@@ -51,10 +55,32 @@ private val tabs = listOf(
 )
 
 @Composable
-fun WorkoutNavHost() {
+fun WorkoutNavHost(
+    /** Somewhere to go on arrival, from a tapped notification. */
+    openSession: PendingSession? = null,
+    onSessionOpened: () -> Unit = {},
+) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    LaunchedEffect(openSession) {
+        val target = openSession ?: return@LaunchedEffect
+        // The session goes on first so that backing out of the exercise lands
+        // there and then on the list, whatever the app was showing when the
+        // notification was tapped. Popping to the list first keeps a run of
+        // notification taps from piling sessions up on the back stack.
+        navController.navigate(Routes.workout(target.workoutId)) {
+            popUpTo(Routes.WORKOUTS)
+            launchSingleTop = true
+        }
+        target.exercise?.let { exercise ->
+            navController.navigate(Routes.sessionExercise(target.workoutId, exercise)) {
+                launchSingleTop = true
+            }
+        }
+        onSessionOpened()
+    }
 
     Scaffold(
         bottomBar = {

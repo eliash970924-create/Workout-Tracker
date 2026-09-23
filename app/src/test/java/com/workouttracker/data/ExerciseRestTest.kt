@@ -98,6 +98,38 @@ class ExerciseRestTest {
     }
 
     @Test
+    fun `the exercises with their own rest can be listed, by their real names`() = runTest {
+        repository.setRestSeconds("deadlift", 210)
+        repository.addCustomExercise("Elias Special", MuscleGroup.CORE)
+        repository.setRestSeconds("Elias Special", 45)
+        // Never in the catalogue and never created: all that is left is the key.
+        repository.setRestSeconds("mystery lift", 90)
+        // A metric override with no rest on it has nothing to list.
+        repository.setMetric("Plank", ExerciseMetric.TIME)
+
+        val overrides = repository.observeRestOverrides().first()
+
+        assertEquals(listOf("Deadlift", "Elias Special", "Mystery Lift"), overrides.map { it.name })
+        assertEquals(listOf(210, 45, 90), overrides.map { it.seconds })
+        // The key is what clearing one needs, and it is not the display name.
+        assertEquals(listOf("deadlift", "elias special", "mystery lift"), overrides.map { it.exercise })
+    }
+
+    @Test
+    fun `clearing a rest takes the exercise off the list`() = runTest {
+        repository.setRestSeconds("Deadlift", 210)
+        clock += 100
+        repository.setMetric("Deadlift", ExerciseMetric.REPS)
+        clock += 100
+        repository.setRestSeconds("Deadlift", null)
+
+        // The row survives, because the metric is still set on it; the listing
+        // is of rest lengths, and there is no longer one.
+        assertTrue(repository.observeRestOverrides().first().isEmpty())
+        assertEquals(ExerciseMetric.REPS, repository.resolveMetric("Deadlift"))
+    }
+
+    @Test
     fun `rest lengths travel in the snapshot`() = runTest {
         repository.setRestSeconds("Deadlift", 210)
 

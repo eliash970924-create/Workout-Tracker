@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Straighten
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -41,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -212,7 +214,11 @@ class SessionExerciseViewModel(
             // exercise's own length here rather than from a cached flow, so a
             // rest just changed in the dialog applies to this very set.
             if (completed) {
-                restTimer.startIfEnabled(repository.restSecondsFor(exercise), exercise)
+                restTimer.startIfEnabled(
+                    seconds = repository.restSecondsFor(exercise),
+                    label = exercise,
+                    workoutId = workoutId,
+                )
             }
         }
     }
@@ -293,8 +299,37 @@ fun SessionExerciseScreen(
                             contentDescription = "How $exercise is measured",
                         )
                     }
-                    IconButton(onClick = { showRestDialog = true }) {
-                        Icon(Icons.Outlined.Timer, contentDescription = "Rest length for $exercise")
+                    // The length itself rather than a bare clock: whether this
+                    // exercise rests for its own time or the default used to
+                    // need opening the dialog to find out.
+                    TextButton(
+                        onClick = { showRestDialog = true },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = if (restOverride != null) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        ),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Timer,
+                            contentDescription = when {
+                                !restDefault.enabled -> "Rest timer is off"
+                                restOverride != null -> "Rest for $exercise, set for this exercise"
+                                else -> "Rest for $exercise, using the default"
+                            },
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            if (restDefault.enabled) {
+                                formatCountdown(restOverride ?: restDefault.seconds)
+                            } else {
+                                "Off"
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                        )
                     }
                     IconButton(onClick = { onOpenHistory(exercise) }) {
                         Icon(Icons.Outlined.History, contentDescription = "History for $exercise")
