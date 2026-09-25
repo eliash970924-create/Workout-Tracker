@@ -19,6 +19,16 @@ automatic background sync to a private folder in your Google Drive.
 - **Reordering** — drag an exercise or a set by its ⋮ handle to move it, or use
   Move up / Move down in the menu behind the same button. Dropping an exercise
   from the session is in that menu too.
+- **Supersets** — "Superset with…" in an exercise's menu pairs it with another
+  in the session, or adds it to a superset already there; a superset's own menu
+  adds more, or splits it back up. The session list shows a superset as one
+  card that drags and moves as one, and opening it shows every member's sets on
+  one screen, each under its own heading with its best and a menu for its rest,
+  metric and history. There is no rest between the exercises of a round: the
+  timer starts once every member has had its turn, for the longest of their
+  rests, and says what the next round is. Whichever order you do the members
+  in, and however many sets each has, a round is over once nobody is behind.
+  Supersets sync and are kept when you start from a previous session.
 - **Exercise metrics** — not everything is reps and kilos, so each exercise
   says what to ask for: weight and reps, reps alone (pull-ups, push-ups), time
   (plank, wall sit, dead hang), or distance and time (running, cycling,

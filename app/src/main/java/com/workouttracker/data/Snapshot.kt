@@ -25,7 +25,8 @@ data class Snapshot(
          * 4: exercises can carry their own rest length.
          * 5: sets say how they were measured, and carry a duration and a
          *    distance alongside reps and weight.
+         * 6: sets can be grouped into supersets.
          */
-        const val CURRENT_VERSION = 5
+        const val CURRENT_VERSION = 6
     }
 }

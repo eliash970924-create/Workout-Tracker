@@ -47,6 +47,8 @@ class SnapshotCompatibilityTest {
         // is what everything logged before then actually was.
         assertEquals(ExerciseMetric.WEIGHT_REPS.name, snapshot.sets.single().metric)
         assertEquals(0, snapshot.sets.single().seconds)
+        // Nor supersets, which came with version 6.
+        assertNull(snapshot.sets.single().supersetId)
     }
 
     @Test

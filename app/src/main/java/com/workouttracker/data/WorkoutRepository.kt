@@ -130,9 +130,10 @@ class WorkoutRepository(
     ) {
         val group = muscleGroup ?: resolveMuscleGroup(exercise)
         val metric = resolveMetric(exercise)
+        val last = dao.lastSetOf(workoutId, exercise)
         // Only repeat a set that was measured the same way; one logged before
         // the exercise was recategorised has its numbers in other fields.
-        val previous = dao.lastSetOf(workoutId, exercise)?.takeIf { it.metric == metric.name }
+        val previous = last?.takeIf { it.metric == metric.name }
         val set = SetEntry(
             id = UUID.randomUUID().toString(),
             workoutId = workoutId,
@@ -150,6 +151,8 @@ class WorkoutRepository(
                 else -> seconds ?: previous?.seconds ?: 0
             },
             meters = if (metric.usesDistance) meters ?: previous?.meters ?: 0.0 else 0.0,
+            // Another set of an exercise in a superset is in the superset.
+            supersetId = last?.supersetId,
             updatedAt = now(),
         )
         dao.upsertSet(set)
@@ -193,7 +196,12 @@ class WorkoutRepository(
 
     suspend fun deleteSet(id: String) {
         val set = dao.findSet(id) ?: return
-        dao.upsertSet(set.copy(deleted = true, updatedAt = now()))
+        db.withTransaction {
+            dao.upsertSet(set.copy(deleted = true, updatedAt = now()))
+            // The last set of an exercise going takes the exercise out of the
+            // session, and possibly its superset down to one.
+            if (set.supersetId != null) dissolveLoneSupersets(set.workoutId)
+        }
         syncTrigger.onLocalChange()
     }
 
@@ -203,6 +211,7 @@ class WorkoutRepository(
         if (sets.isEmpty()) return
         db.withTransaction {
             for (set in sets) dao.upsertSet(set.copy(deleted = true, updatedAt = now()))
+            dissolveLoneSupersets(workoutId)
         }
         syncTrigger.onLocalChange()
     }
@@ -322,6 +331,10 @@ class WorkoutRepository(
         val copied = db.withTransaction {
             val template = dao.setsOf(sourceWorkoutId)
             if (template.isEmpty()) return@withTransaction 0
+            // The same supersets, under new ids: the source keeps its own, and
+            // an id means "these, in this session", so sharing one across two
+            // sessions would be a coincidence waiting to be read as a link.
+            val renamed = mutableMapOf<String, String>()
             var position = dao.maxPosition(workoutId)
             for (set in template) {
                 dao.upsertSet(
@@ -331,6 +344,7 @@ class WorkoutRepository(
                         position = ++position,
                         // What you did then is not what you have done now.
                         completed = false,
+                        supersetId = set.supersetId?.let { renamed.getOrPut(it) { UUID.randomUUID().toString() } },
                         updatedAt = now(),
                     )
                 )
@@ -354,8 +368,12 @@ class WorkoutRepository(
             if (template.isEmpty()) return@withTransaction 0
 
             // Captured before the deletes, so the exercise keeps its place in
-            // the session instead of being renumbered to the end.
-            val order = dao.setsOf(workoutId).map { it.exercise }.distinct()
+            // the session instead of being renumbered to the end -- and its
+            // superset, which is this session's business and not the one the
+            // sets are copied from.
+            val current = dao.setsOf(workoutId)
+            val order = current.map { it.exercise }.distinct()
+            val supersetId = current.firstOrNull { it.exercise == exercise }?.supersetId
 
             for (set in dao.setsOfExerciseIn(workoutId, exercise).filter { !it.completed }) {
                 dao.upsertSet(set.copy(deleted = true, updatedAt = now()))
@@ -374,6 +392,7 @@ class WorkoutRepository(
                         metric = set.metric,
                         seconds = set.seconds,
                         meters = set.meters,
+                        supersetId = supersetId,
                         updatedAt = now(),
                     )
                 )
@@ -383,6 +402,74 @@ class WorkoutRepository(
         }
         if (copied > 0) syncTrigger.onLocalChange()
         return copied
+    }
+
+    /**
+     * Puts [exercise] in a superset with [partner]. If either is already in a
+     * superset the other joins it; if neither is, they start one, [exercise]
+     * first. Whoever joins is moved to sit straight after the superset's last
+     * member, so a superset is always one unbroken run in the session.
+     *
+     * An exercise joining from another superset leaves that one, and a
+     * superset left with a single member stops being one.
+     */
+    suspend fun supersetWith(workoutId: String, exercise: String, partner: String) {
+        if (exercise == partner) return
+        db.withTransaction {
+            val sets = dao.setsOf(workoutId)
+            fun groupOf(name: String) = sets.firstOrNull { it.exercise == name }?.supersetId
+            val partnerGroup = groupOf(partner)
+            val ownGroup = groupOf(exercise)
+            val (group, joiner) = when {
+                partnerGroup != null -> partnerGroup to exercise
+                ownGroup != null -> ownGroup to partner
+                else -> UUID.randomUUID().toString() to partner
+            }
+            for (set in sets) {
+                val joins = set.exercise == exercise || set.exercise == partner
+                if (joins && set.supersetId != group) {
+                    dao.upsertSet(set.copy(supersetId = group, updatedAt = now()))
+                }
+            }
+
+            val order = sets.map { it.exercise }.distinct().toMutableList()
+            val members = order.filter { name ->
+                name == exercise || name == partner || groupOf(name) == group
+            }
+            val block = members.filter { it != joiner } + joiner
+            val at = order.indexOfFirst { it in members }
+            order.removeAll(members.toSet())
+            order.addAll(at, block)
+            renumber(workoutId, order)
+            dissolveLoneSupersets(workoutId)
+        }
+        syncTrigger.onLocalChange()
+    }
+
+    /** Breaks a superset back into separate exercises, where they already sit. */
+    suspend fun splitSuperset(workoutId: String, supersetId: String) {
+        val sets = dao.setsOf(workoutId).filter { it.supersetId == supersetId }
+        if (sets.isEmpty()) return
+        db.withTransaction {
+            for (set in sets) dao.upsertSet(set.copy(supersetId = null, updatedAt = now()))
+        }
+        syncTrigger.onLocalChange()
+    }
+
+    /**
+     * A superset of one is just an exercise. Whatever took the others away --
+     * removing an exercise, deleting its last set, moving it to another
+     * superset -- the one left behind goes back to being done on its own.
+     */
+    private suspend fun dissolveLoneSupersets(workoutId: String) {
+        val sets = dao.setsOf(workoutId)
+        val lone = sets.filter { it.supersetId != null }
+            .groupBy { it.supersetId }
+            .filterValues { group -> group.map { it.exercise }.distinct().size < 2 }
+            .keys
+        for (set in sets) {
+            if (set.supersetId in lone) dao.upsertSet(set.copy(supersetId = null, updatedAt = now()))
+        }
     }
 
     /**

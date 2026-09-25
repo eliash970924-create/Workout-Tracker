@@ -109,3 +109,17 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         db.execSQL("ALTER TABLE `exercise_settings_new` RENAME TO `exercise_settings`")
     }
 }
+
+/**
+ * Adds supersets: a nullable group id on each set.
+ *
+ * Nothing to backfill. Every exercise logged before this was done on its own,
+ * which is exactly what a null means.
+ */
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Nullable and with no default, matching the entity, or Room rejects the
+        // migrated schema on open.
+        db.execSQL("ALTER TABLE `exercise_sets` ADD COLUMN `supersetId` TEXT")
+    }
+}

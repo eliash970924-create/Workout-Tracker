@@ -74,6 +74,14 @@ data class SetEntry(
     @ColumnInfo(defaultValue = "0")
     val meters: Double = 0.0,
     /**
+     * Shared by every set of the exercises done together as a superset in this
+     * session; null for an exercise done on its own. Kept on the sets, like the
+     * metric, so it syncs with them row by row and needs no table of its own.
+     * An exercise's superset is the one on its first set, and every change to
+     * it is written to all of its sets.
+     */
+    val supersetId: String? = null,
+    /**
      * Ticked off during the session. Sets are planned first and completed as
      * they are done, so a set can exist without having been performed yet.
      */

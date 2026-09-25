@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +25,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -123,12 +127,18 @@ class WorkoutDetailViewModel(
         viewModelScope.launch { repository.deleteExercise(workoutId, exercise) }
     }
 
-    fun moveExercise(exercise: String, delta: Int) {
-        viewModelScope.launch { repository.moveExercise(workoutId, exercise, delta) }
+    /** Puts the session's blocks in [order]; a superset moves as one. */
+    fun reorderBlocks(order: List<Block>) {
+        viewModelScope.launch { repository.reorderExercises(workoutId, exercisesOf(order)) }
     }
 
-    fun reorderExercises(order: List<String>) {
-        viewModelScope.launch { repository.reorderExercises(workoutId, order) }
+    /** [exercise] joins [partner]'s superset, or the two start one. */
+    fun supersetWith(exercise: String, partner: String) {
+        viewModelScope.launch { repository.supersetWith(workoutId, exercise, partner) }
+    }
+
+    fun splitSuperset(supersetId: String) {
+        viewModelScope.launch { repository.splitSuperset(workoutId, supersetId) }
     }
 
     fun loadStartFrom() {
@@ -187,6 +197,8 @@ fun WorkoutDetailScreen(
     var showAddExercise by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<String?>(null) }
+    var supersetFor by remember { mutableStateOf<String?>(null) }
+    var addToSuperset by remember { mutableStateOf<Block.Superset?>(null) }
     var showStartFrom by remember { mutableStateOf(false) }
     val startFromSessions by viewModel.startFrom.collectAsStateWithLifecycle()
 
@@ -215,9 +227,11 @@ fun WorkoutDetailScreen(
             return@Scaffold
         }
 
-        // Sets grouped by exercise, in the order each exercise first appears.
+        // Sets grouped by exercise, and exercises into blocks: one exercise, or a
+        // superset of several. Blocks are what the list draws, drags and moves,
+        // which is what keeps a superset in one piece.
         val byExercise = remember(sets) { sets.groupBy(SetEntry::exercise) }
-        val stored = remember(sets) { sets.map(SetEntry::exercise).distinct() }
+        val stored = remember(sets) { blocksOf(sets) }
 
         // The order the list draws in. A drag rewrites this immediately and
         // persists afterwards; waiting for the database to come back would drop
@@ -226,15 +240,23 @@ fun WorkoutDetailScreen(
         var order by remember { mutableStateOf(stored) }
         LaunchedEffect(stored) { order = stored }
 
+        fun moveBlock(block: Block, delta: Int) {
+            val from = order.indexOf(block)
+            val to = from + delta
+            if (from < 0 || to !in order.indices) return
+            order = order.toMutableList().apply { add(to, removeAt(from)) }
+            viewModel.reorderBlocks(order)
+        }
+
         val listState = rememberLazyListState()
         val reorderState = rememberReorderableLazyListState(listState) { from, to ->
-            // Indices are into the whole list, which starts with the name field
-            // and the date button.
-            val fromIndex = from.index - EXERCISES_START
-            val toIndex = to.index - EXERCISES_START
-            if (fromIndex in order.indices && toIndex in order.indices) {
+            // By key rather than index: the list also holds the name field, the
+            // date and the buttons, and a drag onto one of those is no move.
+            val fromIndex = order.indexOfFirst { it.key == from.key }
+            val toIndex = order.indexOfFirst { it.key == to.key }
+            if (fromIndex >= 0 && toIndex >= 0) {
                 order = order.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
-                viewModel.reorderExercises(order)
+                viewModel.reorderBlocks(order)
             }
         }
 
@@ -262,20 +284,37 @@ fun WorkoutDetailScreen(
                     Text(formatDay(current.date))
                 }
             }
-            items(order, key = { it }) { exercise ->
-                ReorderableItem(reorderState, key = exercise) { dragging ->
-                    val index = order.indexOf(exercise)
-                    ExerciseRow(
-                        exercise = exercise,
-                        sets = byExercise[exercise].orEmpty(),
-                        dragging = dragging,
-                        canMoveUp = index > 0,
-                        canMoveDown = index < order.lastIndex,
-                        onOpen = { onOpenExercise(exercise) },
-                        onMove = { delta -> viewModel.moveExercise(exercise, delta) },
-                        onRemove = { confirmRemove = exercise },
-                        dragHandle = Modifier.draggableHandle(),
-                    )
+            items(order, key = { it.key }) { block ->
+                ReorderableItem(reorderState, key = block.key) { dragging ->
+                    val index = order.indexOf(block)
+                    when (block) {
+                        is Block.Single -> ExerciseRow(
+                            exercise = block.exercise,
+                            sets = byExercise[block.exercise].orEmpty(),
+                            dragging = dragging,
+                            canMoveUp = index > 0,
+                            canMoveDown = index < order.lastIndex,
+                            canSuperset = order.size > 1,
+                            onOpen = { onOpenExercise(block.exercise) },
+                            onMove = { delta -> moveBlock(block, delta) },
+                            onSuperset = { supersetFor = block.exercise },
+                            onRemove = { confirmRemove = block.exercise },
+                            dragHandle = Modifier.draggableHandle(),
+                        )
+                        is Block.Superset -> SupersetRow(
+                            block = block,
+                            byExercise = byExercise,
+                            dragging = dragging,
+                            canMoveUp = index > 0,
+                            canMoveDown = index < order.lastIndex,
+                            canAdd = order.any { it is Block.Single },
+                            onOpen = { onOpenExercise(block.members.first()) },
+                            onMove = { delta -> moveBlock(block, delta) },
+                            onAdd = { addToSuperset = block },
+                            onSplit = { viewModel.splitSuperset(block.id) },
+                            dragHandle = Modifier.draggableHandle(),
+                        )
+                    }
                 }
             }
             item {
@@ -372,6 +411,40 @@ fun WorkoutDetailScreen(
         )
     }
 
+    supersetFor?.let { exercise ->
+        // Anything else in the session: an exercise to start a superset with,
+        // or a superset to join.
+        val options = blocksOf(sets).filter { exercise !in it.members }.map { block ->
+            block.members.first() to
+                if (block is Block.Superset) "${block.label} (superset)" else block.label
+        }
+        SupersetPickerDialog(
+            title = "Superset $exercise with",
+            options = options,
+            onDismiss = { supersetFor = null },
+            onPick = { partner ->
+                viewModel.supersetWith(exercise, partner)
+                supersetFor = null
+            },
+        )
+    }
+
+    addToSuperset?.let { block ->
+        // Exercises on their own only. Folding one superset into another is
+        // two supersets' worth of rounds changing at once; split one first.
+        val options = blocksOf(sets).filterIsInstance<Block.Single>()
+            .map { it.exercise to it.exercise }
+        SupersetPickerDialog(
+            title = "Add to ${block.label}",
+            options = options,
+            onDismiss = { addToSuperset = null },
+            onPick = { exercise ->
+                viewModel.supersetWith(exercise, block.members.first())
+                addToSuperset = null
+            },
+        )
+    }
+
     confirmRemove?.let { exercise ->
         AlertDialog(
             onDismissRequest = { confirmRemove = null },
@@ -409,9 +482,6 @@ fun WorkoutDetailScreen(
 
 private const val MILLIS_PER_DAY = 86_400_000L
 
-/** The name field and the date button sit above the exercises in the list. */
-private const val EXERCISES_START = 2
-
 /**
  * One exercise in the session: how far through it you are, and a way in.
  *
@@ -426,8 +496,10 @@ private fun ExerciseRow(
     dragging: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
+    canSuperset: Boolean,
     onOpen: () -> Unit,
     onMove: (Int) -> Unit,
+    onSuperset: () -> Unit,
     onRemove: () -> Unit,
     dragHandle: Modifier,
 ) {
@@ -482,6 +554,17 @@ private fun ExerciseRow(
                         },
                     )
                     DropdownMenuItem(
+                        text = { Text("Superset with…") },
+                        enabled = canSuperset,
+                        leadingIcon = {
+                            Icon(Icons.Outlined.Link, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onSuperset()
+                        },
+                    )
+                    DropdownMenuItem(
                         text = { Text("Remove from session") },
                         leadingIcon = {
                             Icon(Icons.Outlined.Delete, contentDescription = null)
@@ -495,4 +578,159 @@ private fun ExerciseRow(
             }
         }
     }
+}
+
+/**
+ * A superset in the session: its exercises in one card, each with how far
+ * through it you are, and the lot opening, dragging and moving as one.
+ *
+ * Removing an exercise from the session is not offered here -- split the
+ * superset first, and each exercise gets its own menu back.
+ */
+@Composable
+private fun SupersetRow(
+    block: Block.Superset,
+    byExercise: Map<String, List<SetEntry>>,
+    dragging: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    canAdd: Boolean,
+    onOpen: () -> Unit,
+    onMove: (Int) -> Unit,
+    onAdd: () -> Unit,
+    onSplit: () -> Unit,
+    dragHandle: Modifier,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+
+    Card(
+        Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (dragging) 8.dp else 0.dp,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.Link,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "Superset",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                block.members.forEach { exercise ->
+                    val sets = byExercise[exercise].orEmpty()
+                    val done = sets.count { it.completed }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp, end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(exercise, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "$done of ${sets.size} sets",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (sets.isNotEmpty()) SetProgressPie(done = done, total = sets.size)
+                    }
+                }
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = dragHandle) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Superset options")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Move up") },
+                        enabled = canMoveUp,
+                        leadingIcon = {
+                            Icon(Icons.Default.KeyboardArrowUp, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onMove(-1)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Move down") },
+                        enabled = canMoveDown,
+                        leadingIcon = {
+                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onMove(1)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add exercise…") },
+                        enabled = canAdd,
+                        leadingIcon = {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onAdd()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Split superset") },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.LinkOff, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onSplit()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Picks one entry from the session, for starting or growing a superset. */
+@Composable
+private fun SupersetPickerDialog(
+    title: String,
+    /** The exercise each choice stands for, and how it is shown. */
+    options: List<Pair<String, String>>,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            if (options.isEmpty()) {
+                Text("There is nothing else in this session to put with it yet.")
+            } else {
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    items(options, key = { it.first }) { (exercise, label) ->
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(exercise) }
+                                .padding(vertical = 12.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

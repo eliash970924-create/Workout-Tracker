@@ -99,7 +99,7 @@ class MigrationTest {
         // Opening with Room runs both migrations in turn, then validates the
         // schema against the entities.
         val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
         try {
             val sets = db.workoutDao().allSets().associateBy { it.id }
@@ -122,6 +122,8 @@ class MigrationTest {
             assertEquals(ExerciseMetric.WEIGHT_REPS.name, sets.getValue("s1").metric)
             assertEquals(0, sets.getValue("s1").seconds)
             assertEquals(0.0, sets.getValue("s1").meters, 0.001)
+            // Everything logged before supersets was done on its own.
+            assertNull(sets.getValue("s1").supersetId)
 
             val summaries = db.workoutDao().observeSummaries().first()
             assertEquals(1, summaries.size)
@@ -160,7 +162,7 @@ class MigrationTest {
         }
 
         val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_4_5)
+            .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
             .build()
         try {
             val settings = db.workoutDao().allExerciseSettings().associateBy { it.exercise }

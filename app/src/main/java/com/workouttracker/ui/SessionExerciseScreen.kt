@@ -51,12 +51,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import sh.calvin.reorderable.ReorderableItem
@@ -113,10 +115,19 @@ fun remainingExercises(sets: List<SetEntry>, current: String): List<String> {
  * "time for your next set of lateral raises" after the last one was wrong.
  */
 fun restNext(sets: List<SetEntry>, exercise: String): RestNext? {
-    if (sets.any { it.exercise == exercise && !it.completed }) return null
+    val block = blockOf(sets, exercise)
+    if (sets.any { it.exercise in block.members && !it.completed }) {
+        // More of the same. For one exercise the usual "next set of" says so;
+        // a superset gets a round, since the next set is of its first member.
+        return if (block is Block.Superset) {
+            RestNext("Next round: ${block.label}.", exercise = block.members.first())
+        } else {
+            null
+        }
+    }
     val following = remainingExercises(sets, exercise).firstOrNull()
         ?: return RestNext("That was the last set of the session.", exercise = null)
-    return RestNext("Time for $following.", exercise = following)
+    return RestNext("Time for ${blockOf(sets, following).label}.", exercise = following)
 }
 
 /** The most recent earlier session of an exercise, for the "last time" card. */
@@ -273,14 +284,33 @@ class SessionExerciseViewModel(
                 // not have come round the flow yet, and whether it was the last
                 // set of the exercise is exactly what it decides.
                 val session = repository.observeSets(workoutId).first()
+                val block = blockOf(session, exercise)
+                if (!completesRound(session, block.members, exercise)) {
+                    // Mid-round in a superset: straight on to the next exercise,
+                    // no rest. One still running from the last round is over,
+                    // too -- the round it was resting for has started.
+                    restTimer.stop()
+                    return@launch
+                }
                 restTimer.startIfEnabled(
-                    seconds = repository.restSecondsFor(exercise),
-                    label = exercise,
+                    seconds = restAfter(block),
+                    label = block.label,
                     workoutId = workoutId,
                     next = restNext(session, exercise),
                 )
             }
         }
+    }
+
+    /**
+     * How long to rest after [block]: the exercise's own length, or for a
+     * superset the longest of its members' -- it rests once for all of them, so
+     * as long as the one that needs it most. Null means the default.
+     */
+    private suspend fun restAfter(block: Block): Int? {
+        if (block.members.size == 1) return repository.restSecondsFor(block.members.first())
+        val default = restDefault.value.seconds
+        return block.members.maxOf { repository.restSecondsFor(it) ?: default }
     }
 
     fun updateSet(set: SetEntry) {
@@ -292,7 +322,38 @@ class SessionExerciseViewModel(
     }
 }
 
-/** One exercise of a session: its sets, ticked off as they are done. */
+/** What the screen shows about one exercise besides its sets. */
+private data class ExerciseDetails(
+    val previous: PreviousSession?,
+    val restOverride: Int?,
+    val metricOverride: ExerciseMetric?,
+    val bests: ExerciseBests,
+) {
+    /** What a new set of it will ask for. */
+    fun metricFor(exercise: String): ExerciseMetric =
+        metricOverride ?: ExerciseCatalog.metricFor(exercise) ?: ExerciseMetric.DEFAULT
+}
+
+@Composable
+private fun rememberDetails(viewModel: SessionExerciseViewModel, exercise: String): ExerciseDetails {
+    val previous by remember(exercise) { viewModel.previousSessionOf(exercise) }
+        .collectAsStateWithLifecycle()
+    val restOverride by remember(exercise) { viewModel.restSecondsOf(exercise) }
+        .collectAsStateWithLifecycle()
+    val metricOverride by remember(exercise) { viewModel.metricOverrideOf(exercise) }
+        .collectAsStateWithLifecycle()
+    val bests by remember(exercise) { viewModel.bestsOf(exercise) }
+        .collectAsStateWithLifecycle()
+    return ExerciseDetails(previous, restOverride, metricOverride, bests)
+}
+
+/**
+ * One exercise of a session: its sets, ticked off as they are done.
+ *
+ * Or, for an exercise in a superset, the whole superset: each member's sets
+ * under its own heading, on one screen, since you go back and forth between
+ * them without stopping. Whichever member was opened, the screen is the same.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionExerciseScreen(
@@ -306,152 +367,208 @@ fun SessionExerciseScreen(
         SessionExerciseViewModel(app.repository, app.restTimer, app.restPrefs, workoutId)
     }
     val allSets by viewModel.sets.collectAsStateWithLifecycle()
-    val previous by remember(exercise) { viewModel.previousSessionOf(exercise) }
-        .collectAsStateWithLifecycle()
-    val restOverride by remember(exercise) { viewModel.restSecondsOf(exercise) }
-        .collectAsStateWithLifecycle()
     val restDefault by viewModel.restDefault.collectAsStateWithLifecycle()
-    val metricOverride by remember(exercise) { viewModel.metricOverrideOf(exercise) }
-        .collectAsStateWithLifecycle()
-    val bests by remember(exercise) { viewModel.bestsOf(exercise) }
-        .collectAsStateWithLifecycle()
-    var showRestDialog by remember { mutableStateOf(false) }
-    var showMetricDialog by remember { mutableStateOf(false) }
+    var restDialogFor by remember { mutableStateOf<String?>(null) }
+    var metricDialogFor by remember { mutableStateOf<String?>(null) }
 
-    // What a new set here will ask for. Each existing set still shows the
-    // fields it was logged with, which is what its own metric is for.
-    val metric = metricOverride ?: ExerciseCatalog.metricFor(exercise) ?: ExerciseMetric.DEFAULT
+    val block = remember(allSets, exercise) { blockOf(allSets, exercise) }
+    val members = block.members
+    val superset = members.size > 1
+    // Keyed by name, so each member keeps its own flows as others come and go.
+    val details = members.associateWith { member -> key(member) { rememberDetails(viewModel, member) } }
 
-    val sets = remember(allSets, exercise) { allSets.filter { it.exercise == exercise } }
-    val remaining = remember(allSets, exercise) { remainingExercises(allSets, exercise) }
+    val sets = remember(allSets, members) { allSets.filter { it.exercise in members } }
     val finished = sets.isNotEmpty() && sets.all { it.completed }
+    // What is left, a superset offered once under its full name.
+    val remaining = remember(allSets, exercise) {
+        remainingExercises(allSets, exercise)
+            .filter { it !in members }
+            .map { blockOf(allSets, it) }
+            .distinctBy { it.key }
+    }
 
     // Drawing order, owned here so a drag lands where it was dropped rather
     // than waiting on the write to come back. Re-seeded from the stored order,
-    // including once that write lands.
+    // including once that write lands. Per exercise: a set belongs to its
+    // exercise, and a drag cannot take it into another's.
     val byId = remember(sets) { sets.associateBy { it.id } }
-    val stored = remember(sets) { sets.map { it.id } }
+    val stored = remember(sets, members) {
+        members.associateWith { member -> sets.filter { it.exercise == member }.map { it.id } }
+    }
     var order by remember { mutableStateOf(stored) }
     LaunchedEffect(stored) { order = stored }
 
     val listState = rememberLazyListState()
     val reorderState = rememberReorderableLazyListState(listState) { from, to ->
-        // The sets are the first thing in this list, so the indices line up.
-        if (from.index in order.indices && to.index in order.indices) {
-            order = order.toMutableList().apply { add(to.index, removeAt(from.index)) }
-            viewModel.reorderSets(exercise, order)
+        // By key: the list also holds headings, buttons and cards, and in a
+        // superset more than one exercise's sets.
+        val member = order.entries.firstOrNull { entry -> entry.value.any { it == from.key } }?.key
+        val ids = member?.let { order.getValue(it) }.orEmpty()
+        val fromIndex = ids.indexOfFirst { it == from.key }
+        val toIndex = ids.indexOfFirst { it == to.key }
+        if (member != null && fromIndex >= 0 && toIndex >= 0) {
+            val moved = ids.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+            order = order + (member to moved)
+            viewModel.reorderSets(member, moved)
         }
     }
+
+    // The single exercise's own, for the top bar; unused in a superset, where
+    // each member's heading carries them.
+    val own = details.getValue(members.first())
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(exercise) },
+                title = {
+                    if (superset) {
+                        Column {
+                            Text("Superset", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                block.label,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                    } else {
+                        Text(exercise)
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showMetricDialog = true }) {
-                        Icon(
-                            Icons.Outlined.Straighten,
-                            contentDescription = "How $exercise is measured",
-                        )
-                    }
-                    // The length itself rather than a bare clock: whether this
-                    // exercise rests for its own time or the default used to
-                    // need opening the dialog to find out.
-                    TextButton(
-                        onClick = { showRestDialog = true },
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = if (restOverride != null) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        ),
-                    ) {
-                        Icon(
-                            Icons.Outlined.Timer,
-                            contentDescription = when {
-                                !restDefault.enabled -> "Rest timer is off"
-                                restOverride != null -> "Rest for $exercise, set for this exercise"
-                                else -> "Rest for $exercise, using the default"
-                            },
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            if (restDefault.enabled) {
-                                formatCountdown(restOverride ?: restDefault.seconds)
-                            } else {
-                                "Off"
-                            },
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                    }
-                    IconButton(onClick = { onOpenHistory(exercise) }) {
-                        Icon(Icons.Outlined.History, contentDescription = "History for $exercise")
+                    if (!superset) {
+                        IconButton(onClick = { metricDialogFor = exercise }) {
+                            Icon(
+                                Icons.Outlined.Straighten,
+                                contentDescription = "How $exercise is measured",
+                            )
+                        }
+                        // The length itself rather than a bare clock: whether
+                        // this exercise rests for its own time or the default
+                        // used to need opening the dialog to find out.
+                        TextButton(
+                            onClick = { restDialogFor = exercise },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = if (own.restOverride != null) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            ),
+                        ) {
+                            Icon(
+                                Icons.Outlined.Timer,
+                                contentDescription = when {
+                                    !restDefault.enabled -> "Rest timer is off"
+                                    own.restOverride != null -> "Rest for $exercise, set for this exercise"
+                                    else -> "Rest for $exercise, using the default"
+                                },
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                if (restDefault.enabled) {
+                                    formatCountdown(own.restOverride ?: restDefault.seconds)
+                                } else {
+                                    "Off"
+                                },
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
+                        IconButton(onClick = { onOpenHistory(exercise) }) {
+                            Icon(Icons.Outlined.History, contentDescription = "History for $exercise")
+                        }
                     }
                 },
             )
         },
         bottomBar = { RestTimerBar() },
     ) { padding ->
-        // The banner sits above the list rather than inside it: pinned, so the
-        // number to beat is still there with the list scrolled, and out of the
-        // list's indices, which the drag-to-reorder counts sets by.
         Column(Modifier.fillMaxSize().padding(padding)) {
-            bests.best?.let { BestBanner(it) }
+            if (superset) {
+                // Pinned, like the best banner is for one exercise: when the
+                // rest comes is the thing about a superset that is different.
+                SupersetRestBanner(
+                    seconds = if (restDefault.enabled) {
+                        members.maxOf { details.getValue(it).restOverride ?: restDefault.seconds }
+                    } else {
+                        null
+                    },
+                )
+            } else {
+                // Above the list rather than inside it: pinned, so the number
+                // to beat is still there with the list scrolled.
+                own.bests.best?.let { BestBanner(it) }
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 state = listState,
                 contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(order, key = { it }) { id ->
-                    ReorderableItem(reorderState, key = id) { dragging ->
-                        val set = byId[id]
-                        if (set != null) {
-                            val index = order.indexOf(id)
-                            SetRow(
-                                set = set,
-                                dragging = dragging,
-                                record = set.id in bests.todayIds,
-                                canMoveUp = index > 0,
-                                canMoveDown = index < order.lastIndex,
-                                onCompleted = { done ->
-                                    viewModel.setCompleted(set.id, exercise, done)
-                                },
-                                onUpdate = viewModel::updateSet,
-                                onMove = { delta -> viewModel.moveSet(set.id, delta) },
-                                onDelete = { viewModel.deleteSet(set.id) },
-                                dragHandle = Modifier.draggableHandle(),
+                members.forEach { member ->
+                    val memberDetails = details.getValue(member)
+                    val ids = order[member].orEmpty()
+                    if (superset) {
+                        item(key = "heading:$member") {
+                            MemberHeading(
+                                exercise = member,
+                                details = memberDetails,
+                                restDefault = restDefault,
+                                onHistory = { onOpenHistory(member) },
+                                onMetric = { metricDialogFor = member },
+                                onRest = { restDialogFor = member },
+                            )
+                        }
+                    }
+                    items(ids, key = { it }) { id ->
+                        ReorderableItem(reorderState, key = id) { dragging ->
+                            val set = byId[id]
+                            if (set != null) {
+                                val index = ids.indexOf(id)
+                                SetRow(
+                                    set = set,
+                                    dragging = dragging,
+                                    record = set.id in memberDetails.bests.todayIds,
+                                    canMoveUp = index > 0,
+                                    canMoveDown = index < ids.lastIndex,
+                                    onCompleted = { done ->
+                                        viewModel.setCompleted(set.id, member, done)
+                                    },
+                                    onUpdate = viewModel::updateSet,
+                                    onMove = { delta -> viewModel.moveSet(set.id, delta) },
+                                    onDelete = { viewModel.deleteSet(set.id) },
+                                    dragHandle = Modifier.draggableHandle(),
+                                )
+                            }
+                        }
+                    }
+                    item(key = "add:$member") {
+                        OutlinedButton(
+                            onClick = { viewModel.addSet(member) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (superset) "Add set of $member" else "Add set")
+                        }
+                    }
+                    memberDetails.previous?.let { last ->
+                        item(key = "last:$member") {
+                            LastTimeCard(
+                                previous = last,
+                                onCopy = { viewModel.copyLastSession(member) },
                             )
                         }
                     }
                 }
-                item {
-                    OutlinedButton(
-                        onClick = { viewModel.addSet(exercise) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Add set")
-                    }
-                }
-                previous?.let { last ->
-                    item {
-                        LastTimeCard(
-                            previous = last,
-                            onCopy = { viewModel.copyLastSession(exercise) },
-                        )
-                    }
-                }
                 if (finished) {
-                    item {
+                    item(key = "finished") {
                         FinishedCard(
                             remaining = remaining,
                             onOpen = onOpenExercise,
@@ -463,49 +580,162 @@ fun SessionExerciseScreen(
         }
     }
 
-    if (showRestDialog) {
+    restDialogFor?.let { target ->
+        val restOverride = details[target]?.restOverride
         RestLengthDialog(
-            title = "Rest for $exercise",
+            title = "Rest for $target",
             initialSeconds = restOverride ?: restDefault.seconds,
-            supporting = if (restOverride == null) {
-                "Currently using the default, ${formatCountdown(restDefault.seconds)}."
-            } else {
-                "Set for this exercise only. Every other exercise uses the " +
+            supporting = when {
+                restOverride == null ->
+                    "Currently using the default, ${formatCountdown(restDefault.seconds)}."
+                else -> "Set for this exercise only. Every other exercise uses the " +
                     "default, ${formatCountdown(restDefault.seconds)}."
-            },
-            onDismiss = { showRestDialog = false },
+            } + if (superset) " A superset rests as long as its longest." else "",
+            onDismiss = { restDialogFor = null },
             onConfirm = { seconds ->
-                viewModel.setRestSeconds(exercise, seconds)
-                showRestDialog = false
+                viewModel.setRestSeconds(target, seconds)
+                restDialogFor = null
             },
             onClear = restOverride?.let {
                 {
-                    viewModel.setRestSeconds(exercise, null)
-                    showRestDialog = false
+                    viewModel.setRestSeconds(target, null)
+                    restDialogFor = null
                 }
             },
             clearLabel = "Use the default instead",
         )
     }
 
-    if (showMetricDialog) {
+    metricDialogFor?.let { target ->
+        val targetDetails = details[target]
         MetricDialog(
-            title = "How is $exercise measured?",
-            initial = metric,
+            title = "How is $target measured?",
+            initial = targetDetails?.metricFor(target)
+                ?: ExerciseCatalog.metricFor(target) ?: ExerciseMetric.DEFAULT,
             supporting = "Sets already logged in this session are changed to " +
                 "match. Earlier sessions keep what they recorded.",
-            onDismiss = { showMetricDialog = false },
+            onDismiss = { metricDialogFor = null },
             onConfirm = { chosen ->
-                viewModel.setMetric(exercise, chosen)
-                showMetricDialog = false
+                viewModel.setMetric(target, chosen)
+                metricDialogFor = null
             },
-            onClear = metricOverride?.let {
+            onClear = targetDetails?.metricOverride?.let {
                 {
-                    viewModel.setMetric(exercise, null)
-                    showMetricDialog = false
+                    viewModel.setMetric(target, null)
+                    metricDialogFor = null
                 }
             },
         )
+    }
+}
+
+/**
+ * One exercise's heading inside a superset: its name, its all-time best, and
+ * behind a menu what the top bar offers for an exercise on its own.
+ */
+@Composable
+private fun MemberHeading(
+    exercise: String,
+    details: ExerciseDetails,
+    restDefault: RestSettings,
+    onHistory: () -> Unit,
+    onMetric: () -> Unit,
+    onRest: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(exercise, style = MaterialTheme.typography.titleMedium)
+            details.bests.best?.let { best ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "All-time best: ${best.set}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(Icons.Default.MoreVert, contentDescription = "$exercise options")
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            when {
+                                !restDefault.enabled -> "Rest length…"
+                                details.restOverride != null ->
+                                    "Rest length (${formatCountdown(details.restOverride)})…"
+                                else -> "Rest length (default)…"
+                            },
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Outlined.Timer, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        onRest()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("How it's measured…") },
+                    leadingIcon = { Icon(Icons.Outlined.Straighten, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        onMetric()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("History") },
+                    leadingIcon = { Icon(Icons.Outlined.History, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        onHistory()
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** When a superset rests: after each round, for the longest of its members' rests. */
+@Composable
+private fun SupersetRestBanner(seconds: Int?) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.Timer,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (seconds == null) {
+                    "No rest between exercises. The rest timer is off."
+                } else {
+                    "No rest between exercises. ${formatCountdown(seconds)} after each round."
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
+        }
     }
 }
 
@@ -682,7 +912,7 @@ private fun LastTimeCard(previous: PreviousSession, onCopy: () -> Unit) {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FinishedCard(remaining: List<String>, onOpen: (String) -> Unit, onBack: () -> Unit) {
+private fun FinishedCard(remaining: List<Block>, onOpen: (String) -> Unit, onBack: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -701,9 +931,9 @@ private fun FinishedCard(remaining: List<String>, onOpen: (String) -> Unit, onBa
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = onBack) { Text("Back to session") }
             } else {
-                Text("Next up: $next", style = MaterialTheme.typography.bodyMedium)
+                Text("Next up: ${next.label}", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = { onOpen(next) }) { Text("Go to $next") }
+                Button(onClick = { onOpen(next.members.first()) }) { Text("Go to ${next.label}") }
                 val others = remaining.drop(1)
                 if (others.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
@@ -713,10 +943,10 @@ private fun FinishedCard(remaining: List<String>, onOpen: (String) -> Unit, onBa
                     )
                     Spacer(Modifier.height(4.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        others.forEach { exercise ->
+                        others.forEach { block ->
                             AssistChip(
-                                onClick = { onOpen(exercise) },
-                                label = { Text(exercise) },
+                                onClick = { onOpen(block.members.first()) },
+                                label = { Text(block.label) },
                             )
                         }
                     }
