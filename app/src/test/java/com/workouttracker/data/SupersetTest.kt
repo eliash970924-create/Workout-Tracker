@@ -3,6 +3,7 @@ package com.workouttracker.data
 import android.app.Application
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -182,5 +183,27 @@ class SupersetTest {
 
         val snapshot = repository.snapshot()
         assertTrue(snapshot.sets.all { it.supersetId == group })
+    }
+
+    @Test
+    fun `a superset's rest is kept for its exercises, whichever order they are in`() = runTest {
+        repository.setRestSeconds(supersetRestKey(listOf("Barbell Row", "Barbell Bench Press")), 120)
+
+        // Paired again the other way round, in another session.
+        assertEquals(
+            120,
+            repository.restSecondsFor(supersetRestKey(listOf("Barbell Bench Press", "Barbell Row"))),
+        )
+        // And not the exercises' own rests, which apply when each is done alone.
+        assertNull(repository.restSecondsFor("Barbell Bench Press"))
+    }
+
+    @Test
+    fun `a superset's rest is listed under its exercises' names`() = runTest {
+        repository.setRestSeconds(supersetRestKey(listOf("Barbell Row", "Barbell Bench Press")), 120)
+
+        val listed = repository.observeRestOverrides().first().single()
+        assertEquals("Barbell Bench Press + Barbell Row (superset)", listed.name)
+        assertEquals(120, listed.seconds)
     }
 }

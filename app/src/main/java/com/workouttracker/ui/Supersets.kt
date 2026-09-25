@@ -89,3 +89,12 @@ fun completesRound(sets: List<SetEntry>, members: List<String>, exercise: String
     val round = done(exercise)
     return members.all { name -> name == exercise || done(name) >= round || !hasLeft(name) }
 }
+
+/**
+ * How long a superset rests after each round: its own length if it has been
+ * given one, otherwise the longest of its exercises' -- it rests once for all
+ * of them, so as long as the one that needs it most. [memberRests] are the
+ * exercises' own lengths, null for one on the [default].
+ */
+fun supersetRest(own: Int?, memberRests: List<Int?>, default: Int): Int =
+    own ?: memberRests.maxOfOrNull { it ?: default } ?: default

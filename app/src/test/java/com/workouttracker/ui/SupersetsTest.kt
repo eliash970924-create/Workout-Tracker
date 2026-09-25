@@ -156,4 +156,16 @@ class SupersetsTest {
         assertEquals("That was the last set of the session.", next?.message)
         assertNull(next?.exercise)
     }
+
+    @Test
+    fun `a superset rests as long as its longest exercise`() {
+        // Bench on the 90 s default, row set to 2 minutes of its own.
+        assertEquals(120, supersetRest(own = null, memberRests = listOf(null, 120), default = 90))
+        assertEquals(90, supersetRest(own = null, memberRests = listOf(null, 60), default = 90))
+    }
+
+    @Test
+    fun `a superset's own rest wins over its exercises'`() {
+        assertEquals(45, supersetRest(own = 45, memberRests = listOf(null, 120), default = 90))
+    }
 }

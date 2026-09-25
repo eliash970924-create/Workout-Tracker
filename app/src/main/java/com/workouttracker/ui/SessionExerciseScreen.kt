@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Straighten
@@ -72,6 +73,7 @@ import com.workouttracker.data.ExerciseMetric
 import com.workouttracker.data.SetEntry
 import com.workouttracker.data.SetWithSession
 import com.workouttracker.data.WorkoutRepository
+import com.workouttracker.data.supersetRestKey
 import com.workouttracker.rest.RestNext
 import com.workouttracker.rest.RestPrefs
 import com.workouttracker.rest.RestSettings
@@ -329,13 +331,25 @@ class SessionExerciseViewModel(
 
     /**
      * How long to rest after [block]: the exercise's own length, or for a
-     * superset the longest of its members' -- it rests once for all of them, so
-     * as long as the one that needs it most. Null means the default.
+     * superset see [supersetRest]. Null means the default.
      */
     private suspend fun restAfter(block: Block): Int? {
         if (block.members.size == 1) return repository.restSecondsFor(block.members.first())
-        val default = restDefault.value.seconds
-        return block.members.maxOf { repository.restSecondsFor(it) ?: default }
+        return supersetRest(
+            own = repository.restSecondsFor(supersetRestKey(block.members)),
+            memberRests = block.members.map { repository.restSecondsFor(it) },
+            default = restDefault.value.seconds,
+        )
+    }
+
+    /** The superset of [members]'s own rest length, or null when it has none. */
+    fun supersetRestOf(members: List<String>): StateFlow<Int?> =
+        repository.observeRestSeconds(supersetRestKey(members))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** [seconds] null goes back to the longest of its exercises' rests. */
+    fun setSupersetRest(members: List<String>, seconds: Int?) {
+        viewModelScope.launch { repository.setRestSeconds(supersetRestKey(members), seconds) }
     }
 
     fun updateSet(set: SetEntry) {
@@ -446,6 +460,20 @@ fun SessionExerciseScreen(
     // each member's heading carries them.
     val own = details.getValue(members.first())
 
+    // What the timer chip shows and changes: the exercise's rest, or for a
+    // superset the one rest it takes after each round.
+    val supersetOwnRest by remember(members) { viewModel.supersetRestOf(members) }
+        .collectAsStateWithLifecycle()
+    val longestMemberRest = members.maxOf { details.getValue(it).restOverride ?: restDefault.seconds }
+    val restIsOwn = if (superset) supersetOwnRest != null else own.restOverride != null
+    val restSeconds = if (superset) {
+        supersetRest(supersetOwnRest, members.map { details.getValue(it).restOverride }, restDefault.seconds)
+    } else {
+        own.restOverride ?: restDefault.seconds
+    }
+    val restName = if (superset) "this superset" else exercise
+    var showSupersetRest by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -477,38 +505,38 @@ fun SessionExerciseScreen(
                                 contentDescription = "How $exercise is measured",
                             )
                         }
-                        // The length itself rather than a bare clock: whether
-                        // this exercise rests for its own time or the default
-                        // used to need opening the dialog to find out.
-                        TextButton(
-                            onClick = { restDialogFor = exercise },
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = if (own.restOverride != null) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            ),
-                        ) {
-                            Icon(
-                                Icons.Outlined.Timer,
-                                contentDescription = when {
-                                    !restDefault.enabled -> "Rest timer is off"
-                                    own.restOverride != null -> "Rest for $exercise, set for this exercise"
-                                    else -> "Rest for $exercise, using the default"
-                                },
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                if (restDefault.enabled) {
-                                    formatCountdown(own.restOverride ?: restDefault.seconds)
-                                } else {
-                                    "Off"
-                                },
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                        }
+                    }
+                    // The length itself rather than a bare clock: whether it
+                    // rests for its own time or the default used to need
+                    // opening the dialog to find out.
+                    TextButton(
+                        onClick = {
+                            if (superset) showSupersetRest = true else restDialogFor = exercise
+                        },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = if (restIsOwn) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        ),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Timer,
+                            contentDescription = when {
+                                !restDefault.enabled -> "Rest timer is off"
+                                restIsOwn -> "Rest for $restName, set for it"
+                                else -> "Rest for $restName, using the default"
+                            },
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            if (restDefault.enabled) formatCountdown(restSeconds) else "Off",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                    if (!superset) {
                         IconButton(onClick = { onOpenHistory(exercise) }) {
                             Icon(Icons.Outlined.History, contentDescription = "History for $exercise")
                         }
@@ -531,11 +559,8 @@ fun SessionExerciseScreen(
                 // Pinned, like the best banner is for one exercise: when the
                 // rest comes is the thing about a superset that is different.
                 SupersetRestBanner(
-                    seconds = if (restDefault.enabled) {
-                        members.maxOf { details.getValue(it).restOverride ?: restDefault.seconds }
-                    } else {
-                        null
-                    },
+                    seconds = if (restDefault.enabled) restSeconds else null,
+                    onClick = { showSupersetRest = true },
                 )
             } else {
                 // Above the list rather than inside it: pinned, so the number
@@ -556,10 +581,8 @@ fun SessionExerciseScreen(
                             MemberHeading(
                                 exercise = member,
                                 details = memberDetails,
-                                restDefault = restDefault,
                                 onHistory = { onOpenHistory(member) },
                                 onMetric = { metricDialogFor = member },
-                                onRest = { restDialogFor = member },
                             )
                         }
                     }
@@ -651,6 +674,31 @@ fun SessionExerciseScreen(
         )
     }
 
+    if (showSupersetRest) {
+        RestLengthDialog(
+            title = "Rest for this superset",
+            initialSeconds = restSeconds,
+            supporting = "Rests once, after each round. " + if (supersetOwnRest == null) {
+                "Without a length of its own it uses the longest of its " +
+                    "exercises' rests, ${formatCountdown(longestMemberRest)}."
+            } else {
+                "Kept for these exercises, so pairing them again brings it back."
+            },
+            onDismiss = { showSupersetRest = false },
+            onConfirm = { seconds ->
+                viewModel.setSupersetRest(members, seconds)
+                showSupersetRest = false
+            },
+            onClear = supersetOwnRest?.let {
+                {
+                    viewModel.setSupersetRest(members, null)
+                    showSupersetRest = false
+                }
+            },
+            clearLabel = "Use the longest of its exercises'",
+        )
+    }
+
     restDialogFor?.let { target ->
         val restOverride = details[target]?.restOverride
         RestLengthDialog(
@@ -661,7 +709,7 @@ fun SessionExerciseScreen(
                     "Currently using the default, ${formatCountdown(restDefault.seconds)}."
                 else -> "Set for this exercise only. Every other exercise uses the " +
                     "default, ${formatCountdown(restDefault.seconds)}."
-            } + if (superset) " A superset rests as long as its longest." else "",
+            },
             onDismiss = { restDialogFor = null },
             onConfirm = { seconds ->
                 viewModel.setRestSeconds(target, seconds)
@@ -708,10 +756,8 @@ fun SessionExerciseScreen(
 private fun MemberHeading(
     exercise: String,
     details: ExerciseDetails,
-    restDefault: RestSettings,
     onHistory: () -> Unit,
     onMetric: () -> Unit,
-    onRest: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
@@ -743,23 +789,6 @@ private fun MemberHeading(
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
-                    text = {
-                        Text(
-                            when {
-                                !restDefault.enabled -> "Rest length…"
-                                details.restOverride != null ->
-                                    "Rest length (${formatCountdown(details.restOverride)})…"
-                                else -> "Rest length (default)…"
-                            },
-                        )
-                    },
-                    leadingIcon = { Icon(Icons.Outlined.Timer, contentDescription = null) },
-                    onClick = {
-                        menuOpen = false
-                        onRest()
-                    },
-                )
-                DropdownMenuItem(
                     text = { Text("How it's measured…") },
                     leadingIcon = { Icon(Icons.Outlined.Straighten, contentDescription = null) },
                     onClick = {
@@ -780,11 +809,14 @@ private fun MemberHeading(
     }
 }
 
-/** When a superset rests: after each round, for the longest of its members' rests. */
+/**
+ * When a superset rests: after each round, not between its exercises. Tapping
+ * it changes how long, the same as the timer in the top bar.
+ */
 @Composable
-private fun SupersetRestBanner(seconds: Int?) {
+private fun SupersetRestBanner(seconds: Int?, onClick: () -> Unit) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
     ) {
@@ -805,7 +837,15 @@ private fun SupersetRestBanner(seconds: Int?) {
                     "No rest between exercises. ${formatCountdown(seconds)} after each round."
                 },
                 style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
             )
+            if (seconds != null) {
+                Icon(
+                    Icons.Outlined.Edit,
+                    contentDescription = "Change the rest",
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }

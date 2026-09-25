@@ -26,6 +26,19 @@ fun defaultWorkoutName(date: LocalDate = LocalDate.now()): String =
  * it safe to rename it after the session it was started from. Typed names are
  * left alone even if they happen to look unremarkable.
  */
+/**
+ * Where a superset's own rest length is kept: a row of the per-exercise
+ * settings, named after its exercises. By the exercises rather than the
+ * superset's id, which is new every session, so pairing the same exercises
+ * again next week brings the same rest back -- and it syncs with the rest of
+ * the settings for free. Sorted, so the order they are done in does not matter.
+ */
+fun supersetRestKey(members: List<String>): String =
+    SUPERSET_KEY_PREFIX + members.map { it.trim().lowercase() }.sorted().joinToString(SUPERSET_KEY_JOIN)
+
+private const val SUPERSET_KEY_PREFIX = "superset: "
+private const val SUPERSET_KEY_JOIN = " + "
+
 fun isDefaultWorkoutName(name: String): Boolean =
     name.isBlank() || name.trim() in DEFAULT_WORKOUT_NAMES
 
@@ -528,12 +541,17 @@ class WorkoutRepository(
      * to show. The catalogue and the user's own exercises know the real
      * spelling; anything else is title-cased as a last resort.
      */
-    private fun displayNameOf(key: String, custom: List<CustomExercise>): String =
-        ExerciseCatalog.find(key)?.name
+    private fun displayNameOf(key: String, custom: List<CustomExercise>): String {
+        if (key.startsWith(SUPERSET_KEY_PREFIX)) {
+            return key.removePrefix(SUPERSET_KEY_PREFIX).split(SUPERSET_KEY_JOIN)
+                .joinToString(" + ") { displayNameOf(it, custom) } + " (superset)"
+        }
+        return ExerciseCatalog.find(key)?.name
             ?: custom.firstOrNull { it.name.equals(key, ignoreCase = true) }?.name
             ?: key.split(' ').joinToString(" ") { word ->
                 word.replaceFirstChar { it.uppercase() }
             }
+    }
 
     /** The metric [exercise] has been overridden to, or null for the default. */
     fun observeMetricOverride(exercise: String): Flow<ExerciseMetric?> =

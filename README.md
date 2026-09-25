@@ -31,8 +31,12 @@ automatic background sync to a private folder in your Google Drive.
   card that drags and moves as one, and opening it shows every member's sets on
   one screen, each under its own heading with its best and a menu for its rest,
   metric and history. There is no rest between the exercises of a round: the
-  timer starts once every member has had its turn, for the longest of their
-  rests, and says what the next round is. Whichever order you do the members
+  timer starts once every member has had its turn and says what the next round
+  is. How long it rests is the superset's own: tap the timer in its top bar (or
+  the banner under it) to set it. Until you do, it rests as long as the longest
+  of its exercises' rests. The length is kept for that combination of
+  exercises, so pairing them again next week brings it back, and it is listed
+  under Settings → Rest per exercise. Whichever order you do the members
   in, and however many sets each has, a round is over once nobody is behind.
   Supersets sync and are kept when you start from a previous session.
 - **Exercise metrics** — not everything is reps and kilos, so each exercise
