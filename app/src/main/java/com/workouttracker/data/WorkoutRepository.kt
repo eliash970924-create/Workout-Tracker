@@ -212,6 +212,11 @@ class WorkoutRepository(
         db.withTransaction {
             for (set in sets) dao.upsertSet(set.copy(deleted = true, updatedAt = now()))
             dissolveLoneSupersets(workoutId)
+            // Its note goes with it, rather than waiting to reappear if the
+            // exercise is added back.
+            dao.findExerciseNoteRow(ExerciseNote.idOf(workoutId, exercise))
+                ?.takeIf { !it.deleted }
+                ?.let { dao.upsertExerciseNote(it.copy(deleted = true, updatedAt = now())) }
         }
         syncTrigger.onLocalChange()
     }
@@ -612,6 +617,39 @@ class WorkoutRepository(
         syncTrigger.onLocalChange()
     }
 
+    /** What was written about [exercise] in this session; empty for nothing. */
+    fun observeExerciseNote(workoutId: String, exercise: String): Flow<String> =
+        dao.observeExerciseNote(ExerciseNote.idOf(workoutId, exercise)).map { it?.text.orEmpty() }
+
+    /** Every session's note on [exercise], by the session it was written in. */
+    fun observeNotesOf(exercise: String): Flow<Map<String, String>> =
+        dao.observeNotesOf(exercise).map { notes -> notes.associate { it.workoutId to it.text } }
+
+    /**
+     * Writes the note on [exercise] in this session. Blank clears it, which
+     * tombstones the row so the clearing syncs too. Called on every keystroke,
+     * so an unchanged note writes nothing and does not wake the sync.
+     */
+    suspend fun setExerciseNote(workoutId: String, exercise: String, text: String) {
+        val id = ExerciseNote.idOf(workoutId, exercise)
+        val existing = dao.findExerciseNoteRow(id)
+        val blank = text.isBlank()
+        val live = existing != null && !existing.deleted
+        if (blank && !live) return
+        if (live && existing?.text == text) return
+        dao.upsertExerciseNote(
+            ExerciseNote(
+                id = id,
+                workoutId = workoutId,
+                exercise = exercise,
+                text = if (blank) "" else text,
+                updatedAt = now(),
+                deleted = blank,
+            )
+        )
+        syncTrigger.onLocalChange()
+    }
+
     /** Exercise names are user-typed; the key is what makes them one row. */
     private fun String.key(): String = trim().lowercase()
 
@@ -627,6 +665,7 @@ class WorkoutRepository(
             sets = dao.allSets(),
             customExercises = dao.allCustomExercises(),
             exerciseSettings = dao.allExerciseSettings(),
+            exerciseNotes = dao.allExerciseNotes(),
         )
     }
 
@@ -671,6 +710,13 @@ class WorkoutRepository(
             val local = dao.findExerciseSettingsRow(remote.exercise)
             if (local == null || local.updatedAt < remote.updatedAt) {
                 dao.upsertExerciseSettings(remote)
+                applied++
+            }
+        }
+        for (remote in snapshot.exerciseNotes) {
+            val local = dao.findExerciseNoteRow(remote.id)
+            if (local == null || local.updatedAt < remote.updatedAt) {
+                dao.upsertExerciseNote(remote)
                 applied++
             }
         }

@@ -49,6 +49,8 @@ class SnapshotCompatibilityTest {
         assertEquals(0, snapshot.sets.single().seconds)
         // Nor supersets, which came with version 6.
         assertNull(snapshot.sets.single().supersetId)
+        // Nor notes on an exercise, which came with version 7.
+        assertTrue(snapshot.exerciseNotes.isEmpty())
     }
 
     @Test

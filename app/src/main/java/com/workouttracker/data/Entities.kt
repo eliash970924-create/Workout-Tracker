@@ -131,6 +131,35 @@ data class ExerciseSettings(
     val deleted: Boolean = false,
 )
 
+/**
+ * What you wrote about one exercise in one session: the seat height, how the
+ * last set felt, the weight to try next time. The session keeps its own notes
+ * on [Workout.notes]; these sit with the exercise, and come back the next time
+ * it is trained.
+ *
+ * The id is made from the session and the exercise rather than a UUID, so two
+ * devices writing a note for the same exercise in the same session edit one
+ * row and last-write-wins can settle it. No foreign key, for the same reason
+ * [ExerciseSettings] has none: a merge can deliver a note before its session,
+ * and every read joins against live workouts anyway. An emptied note is
+ * tombstoned rather than kept as a blank row.
+ */
+@Serializable
+@Entity(tableName = "exercise_notes")
+data class ExerciseNote(
+    @PrimaryKey val id: String,
+    val workoutId: String,
+    /** As it is written on the session's sets, which is what it is matched by. */
+    val exercise: String,
+    val text: String,
+    val updatedAt: Long,
+    val deleted: Boolean = false,
+) {
+    companion object {
+        fun idOf(workoutId: String, exercise: String) = "$workoutId/$exercise"
+    }
+}
+
 /** List-screen projection: a workout plus its aggregates, computed in SQL. */
 data class WorkoutSummary(
     val id: String,
@@ -219,6 +248,8 @@ data class SetWithSession(
      * a hand-built set in a test, and there it means "one you did".
      */
     val completed: Boolean = true,
+    /** Defaulted, like [completed], only so a test can build one by hand. */
+    val workoutId: String = "",
     @ColumnInfo(name = "workoutName") val workoutName: String,
     @ColumnInfo(name = "workoutDate") val workoutDate: Long,
 )

@@ -64,6 +64,7 @@ fun snapshotFingerprint(snapshot: Snapshot, json: Json): String {
         sets = snapshot.sets.sortedBy { it.id },
         customExercises = snapshot.customExercises.sortedBy { it.id },
         exerciseSettings = snapshot.exerciseSettings.sortedBy { it.exercise },
+        exerciseNotes = snapshot.exerciseNotes.sortedBy { it.id },
     )
     val bytes = json.encodeToString(Snapshot.serializer(), canonical).toByteArray()
     return MessageDigest.getInstance("SHA-256").digest(bytes)

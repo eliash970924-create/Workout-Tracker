@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
@@ -30,7 +31,6 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Straighten
 import androidx.compose.material.icons.outlined.Timer
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -57,6 +57,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
@@ -78,7 +79,6 @@ import com.workouttracker.rest.RestTimer
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -130,11 +130,19 @@ fun restNext(sets: List<SetEntry>, exercise: String): RestNext? {
     return RestNext("Time for ${blockOf(sets, following).label}.", exercise = following)
 }
 
-/** The most recent earlier session of an exercise, for the "last time" card. */
-data class PreviousSession(val date: Long, val sets: List<SetWithSession>)
+/**
+ * The most recent earlier session of an exercise, for the "last time" card,
+ * with whatever you wrote about the exercise then.
+ */
+data class PreviousSession(
+    val date: Long,
+    val sets: List<SetWithSession>,
+    val workoutId: String = "",
+    val note: String? = null,
+)
 
 /**
- * The newest session in [sets], which arrive newest first. Grouping by date
+ * The newest session in [sets], which arrive newest first. Grouping by session
  * rather than taking a fixed count keeps a session whole however many sets it
  * held.
  */
@@ -142,7 +150,10 @@ fun previousSession(sets: List<SetWithSession>): PreviousSession? {
     val newest = sets.firstOrNull() ?: return null
     return PreviousSession(
         date = newest.workoutDate,
-        sets = sets.takeWhile { it.workoutDate == newest.workoutDate },
+        sets = sets.takeWhile {
+            it.workoutDate == newest.workoutDate && it.workoutId == newest.workoutId
+        },
+        workoutId = newest.workoutId,
     )
 }
 
@@ -198,9 +209,21 @@ class SessionExerciseViewModel(
 
     /** What this exercise looked like the last time it was trained. */
     fun previousSessionOf(exercise: String): StateFlow<PreviousSession?> =
-        repository.observePreviousSets(exercise, workoutId)
-            .map(::previousSession)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        combine(
+            repository.observePreviousSets(exercise, workoutId),
+            repository.observeNotesOf(exercise),
+        ) { sets, notes ->
+            previousSession(sets)?.let { it.copy(note = notes[it.workoutId]) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** What you have written about this exercise in this session. */
+    fun noteOf(exercise: String): StateFlow<String> =
+        repository.observeExerciseNote(workoutId, exercise)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
+    fun setNote(exercise: String, text: String) {
+        viewModelScope.launch { repository.setExerciseNote(workoutId, exercise, text) }
+    }
 
     /** This exercise's own rest length, or null when it uses the default. */
     fun restSecondsOf(exercise: String): StateFlow<Int?> =
@@ -328,6 +351,7 @@ private data class ExerciseDetails(
     val restOverride: Int?,
     val metricOverride: ExerciseMetric?,
     val bests: ExerciseBests,
+    val note: String,
 ) {
     /** What a new set of it will ask for. */
     fun metricFor(exercise: String): ExerciseMetric =
@@ -344,7 +368,9 @@ private fun rememberDetails(viewModel: SessionExerciseViewModel, exercise: Strin
         .collectAsStateWithLifecycle()
     val bests by remember(exercise) { viewModel.bestsOf(exercise) }
         .collectAsStateWithLifecycle()
-    return ExerciseDetails(previous, restOverride, metricOverride, bests)
+    val note by remember(exercise) { viewModel.noteOf(exercise) }
+        .collectAsStateWithLifecycle()
+    return ExerciseDetails(previous, restOverride, metricOverride, bests, note)
 }
 
 /**
@@ -557,6 +583,18 @@ fun SessionExerciseScreen(
                             Spacer(Modifier.width(8.dp))
                             Text(if (superset) "Add set of $member" else "Add set")
                         }
+                    }
+                    item(key = "note:$member") {
+                        // The session's own notes are on the session screen;
+                        // this is for the exercise, and comes back with it
+                        // next time in the "last time" card.
+                        DraftTextField(
+                            value = memberDetails.note,
+                            onValueChange = { viewModel.setNote(member, it) },
+                            label = if (superset) "Notes on $member" else "Notes on this exercise",
+                            singleLine = false,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                     memberDetails.previous?.let { last ->
                         item(key = "last:$member") {
@@ -894,6 +932,14 @@ private fun LastTimeCard(previous: PreviousSession, onCopy: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            previous.note?.let { note ->
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Note: $note",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontStyle = FontStyle.Italic,
+                )
+            }
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = onCopy) {
                 Icon(Icons.Outlined.ContentCopy, contentDescription = null)
@@ -906,9 +952,9 @@ private fun LastTimeCard(previous: PreviousSession, onCopy: () -> Unit) {
 
 /**
  * Once every set here is ticked off: the obvious next exercise as the big
- * button, and the rest of what is left as one-tap alternatives underneath, for
- * when the obvious one is not the one you are going to do -- a machine is
- * taken, or you would rather.
+ * button, and behind a second one a menu of everything still left -- the
+ * obvious one included, in case you change your mind -- for when it is not the
+ * one you are going to do: a machine is taken, or you would rather.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -931,23 +977,36 @@ private fun FinishedCard(remaining: List<Block>, onOpen: (String) -> Unit, onBac
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = onBack) { Text("Back to session") }
             } else {
-                Text("Next up: ${next.label}", style = MaterialTheme.typography.bodyMedium)
+                Text("Next exercise: ${next.label}", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = { onOpen(next.members.first()) }) { Text("Go to ${next.label}") }
-                val others = remaining.drop(1)
-                if (others.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "Or pick another:",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        others.forEach { block ->
-                            AssistChip(
-                                onClick = { onOpen(block.members.first()) },
-                                label = { Text(block.label) },
-                            )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Button(onClick = { onOpen(next.members.first()) }) { Text("Go to ${next.label}") }
+                    // With only one left, the menu would offer the same thing
+                    // as the button beside it.
+                    if (remaining.size > 1) {
+                        var menuOpen by remember { mutableStateOf(false) }
+                        Box {
+                            OutlinedButton(onClick = { menuOpen = true }) {
+                                Text("Other exercise")
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
+                            DropdownMenu(
+                                expanded = menuOpen,
+                                onDismissRequest = { menuOpen = false },
+                            ) {
+                                remaining.forEach { block ->
+                                    DropdownMenuItem(
+                                        text = { Text(block.label) },
+                                        onClick = {
+                                            menuOpen = false
+                                            onOpen(block.members.first())
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }

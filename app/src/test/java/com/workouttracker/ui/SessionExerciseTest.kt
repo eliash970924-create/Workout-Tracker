@@ -163,6 +163,20 @@ class SessionExerciseTest {
     }
 
     @Test
+    fun `two sessions on one day are not one previous session`() {
+        // Morning and evening: the card is the evening's alone.
+        val previous = previousSession(
+            listOf(
+                past(30, 5, 100.0).copy(workoutId = "evening"),
+                past(30, 5, 60.0).copy(workoutId = "morning"),
+            )
+        )
+
+        assertEquals("evening", previous?.workoutId)
+        assertEquals(listOf(100.0), previous?.sets?.map { it.weightKg })
+    }
+
+    @Test
     fun `an exercise never trained before has no previous session`() {
         assertNull(previousSession(emptyList()))
     }

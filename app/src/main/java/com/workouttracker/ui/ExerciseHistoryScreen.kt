@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -49,6 +50,10 @@ class ExerciseHistoryViewModel(
 ) : ViewModel() {
     val sets: StateFlow<List<SetWithSession>> = repository.observeSetsForExercise(exercise)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** What was written about the exercise, by the session it was written in. */
+    val notes: StateFlow<Map<String, String>> = repository.observeNotesOf(exercise)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 }
 
 /** Every set logged for one exercise, newest session first, with totals. */
@@ -59,10 +64,12 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
         ExerciseHistoryViewModel(app.repository, exercise)
     }
     val sets by viewModel.sets.collectAsStateWithLifecycle()
+    val notes by viewModel.notes.collectAsStateWithLifecycle()
 
     // Sessions in the order the query returned them (newest first); groupBy
-    // preserves first-encounter order, so no re-sorting is needed.
-    val sessions = remember(sets) { sets.groupBy { it.workoutDate }.toList() }
+    // preserves first-encounter order, so no re-sorting is needed. By session
+    // rather than by day, so two sessions on one day stay two.
+    val sessions = remember(sets) { sets.groupBy { it.workoutId }.toList() }
 
     // How this exercise is measured now, taken from its most recent set. An
     // exercise recategorised part-way through has sets of both kinds, and the
@@ -134,11 +141,12 @@ fun ExerciseHistoryScreen(exercise: String, onBack: () -> Unit) {
                     }
                 }
             }
-            items(sessions, key = { it.first }) { (date, sessionSets) ->
+            items(sessions, key = { it.first }) { (workoutId, sessionSets) ->
                 SessionCard(
-                    date = date,
+                    date = sessionSets.first().workoutDate,
                     name = sessionSets.first().workoutName,
                     sets = sessionSets,
+                    note = notes[workoutId],
                     records = records,
                 )
             }
@@ -188,6 +196,7 @@ private fun SessionCard(
     date: Long,
     name: String,
     sets: List<SetWithSession>,
+    note: String?,
     records: Set<String>,
 ) {
     Card(Modifier.fillMaxWidth()) {
@@ -218,6 +227,15 @@ private fun SessionCard(
                         )
                     }
                 }
+            }
+            note?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

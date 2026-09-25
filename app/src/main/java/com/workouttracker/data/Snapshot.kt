@@ -16,6 +16,8 @@ data class Snapshot(
     val customExercises: List<CustomExercise> = emptyList(),
     /** Per-exercise overrides. Defaulted so older snapshots still decode. */
     val exerciseSettings: List<ExerciseSettings> = emptyList(),
+    /** Notes on an exercise in a session. Defaulted so older snapshots still decode. */
+    val exerciseNotes: List<ExerciseNote> = emptyList(),
 ) {
     companion object {
         /**
@@ -26,7 +28,8 @@ data class Snapshot(
          * 5: sets say how they were measured, and carry a duration and a
          *    distance alongside reps and weight.
          * 6: sets can be grouped into supersets.
+         * 7: an exercise in a session can carry a note.
          */
-        const val CURRENT_VERSION = 6
+        const val CURRENT_VERSION = 7
     }
 }

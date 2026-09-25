@@ -99,7 +99,10 @@ class MigrationTest {
         // Opening with Room runs both migrations in turn, then validates the
         // schema against the entities.
         val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(
+                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+                MIGRATION_6_7,
+            )
             .build()
         try {
             val sets = db.workoutDao().allSets().associateBy { it.id }
@@ -133,6 +136,7 @@ class MigrationTest {
             // The new tables exist and are usable.
             assertEquals(emptyList<CustomExercise>(), db.workoutDao().allCustomExercises())
             assertEquals(emptyList<ExerciseSettings>(), db.workoutDao().allExerciseSettings())
+            assertEquals(emptyList<ExerciseNote>(), db.workoutDao().allExerciseNotes())
         } finally {
             db.close()
             context.deleteDatabase(name)
@@ -162,7 +166,7 @@ class MigrationTest {
         }
 
         val db = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
             .build()
         try {
             val settings = db.workoutDao().allExerciseSettings().associateBy { it.exercise }

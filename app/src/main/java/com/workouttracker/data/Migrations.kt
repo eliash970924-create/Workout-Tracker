@@ -123,3 +123,23 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         db.execSQL("ALTER TABLE `exercise_sets` ADD COLUMN `supersetId` TEXT")
     }
 }
+
+/**
+ * Adds notes on an exercise within a session.
+ *
+ * A new table and nothing to backfill: the session's own notes stay where they
+ * were, on the workout.
+ */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Must match the entity exactly, or Room rejects the migrated schema on
+        // open. `deleted` carries no default because ExerciseNote.deleted
+        // declares none.
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `exercise_notes` (" +
+                "`id` TEXT NOT NULL, `workoutId` TEXT NOT NULL, `exercise` TEXT NOT NULL, " +
+                "`text` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`id`))"
+        )
+    }
+}

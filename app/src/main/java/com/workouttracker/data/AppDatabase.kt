@@ -11,8 +11,9 @@ import androidx.room.RoomDatabase
         SetEntry::class,
         CustomExercise::class,
         ExerciseSettings::class,
+        ExerciseNote::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,7 +24,10 @@ abstract class AppDatabase : RoomDatabase() {
             Room.databaseBuilder(context, AppDatabase::class.java, "workout-tracker.db")
                 // Never destructive: this database is the only copy of the
                 // user's log until it reaches Drive.
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+                    MIGRATION_6_7,
+                )
                 .build()
     }
 }

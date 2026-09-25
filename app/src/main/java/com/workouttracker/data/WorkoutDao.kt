@@ -87,7 +87,7 @@ interface WorkoutDao {
         SELECT s.id AS id, s.exercise AS exercise, s.reps AS reps,
                s.weightKg AS weightKg, s.position AS position,
                s.metric AS metric, s.seconds AS seconds, s.meters AS meters,
-               s.completed AS completed,
+               s.completed AS completed, s.workoutId AS workoutId,
                w.name AS workoutName, w.date AS workoutDate
         FROM exercise_sets s
         JOIN workouts w ON w.id = s.workoutId
@@ -176,7 +176,7 @@ interface WorkoutDao {
         SELECT s.id AS id, s.exercise AS exercise, s.reps AS reps,
                s.weightKg AS weightKg, s.position AS position,
                s.metric AS metric, s.seconds AS seconds, s.meters AS meters,
-               s.completed AS completed,
+               s.completed AS completed, s.workoutId AS workoutId,
                w.name AS workoutName, w.date AS workoutDate
         FROM exercise_sets s
         JOIN workouts w ON w.id = s.workoutId
@@ -242,4 +242,31 @@ interface WorkoutDao {
 
     @Upsert
     suspend fun upsertExerciseSettings(settings: ExerciseSettings)
+
+    // --- exercise notes ---
+
+    @Query("SELECT * FROM exercise_notes WHERE id = :id AND deleted = 0")
+    fun observeExerciseNote(id: String): Flow<ExerciseNote?>
+
+    @Query("SELECT * FROM exercise_notes WHERE id = :id")
+    suspend fun findExerciseNoteRow(id: String): ExerciseNote?
+
+    /** Every note on an exercise, from sessions that still exist. */
+    @Query(
+        """
+        SELECT n.* FROM exercise_notes n
+        JOIN workouts w ON w.id = n.workoutId
+        WHERE n.exercise = :exercise AND n.deleted = 0 AND w.deleted = 0
+        """
+    )
+    fun observeNotesOf(exercise: String): Flow<List<ExerciseNote>>
+
+    @Query("SELECT * FROM exercise_notes WHERE workoutId = :workoutId AND deleted = 0")
+    suspend fun notesIn(workoutId: String): List<ExerciseNote>
+
+    @Query("SELECT * FROM exercise_notes")
+    suspend fun allExerciseNotes(): List<ExerciseNote>
+
+    @Upsert
+    suspend fun upsertExerciseNote(note: ExerciseNote)
 }
