@@ -1,10 +1,9 @@
 package com.workouttracker.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,9 +27,11 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Straighten
 import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -59,11 +61,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import sh.calvin.reorderable.ReorderableItem
-import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -77,11 +77,13 @@ import com.workouttracker.rest.RestPrefs
 import com.workouttracker.rest.RestSettings
 import com.workouttracker.rest.RestTimer
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /**
  * Exercise names in the order they appear in the session. Sets arrive ordered
@@ -396,6 +398,7 @@ fun SessionExerciseScreen(
     val restDefault by viewModel.restDefault.collectAsStateWithLifecycle()
     var restDialogFor by remember { mutableStateOf<String?>(null) }
     var metricDialogFor by remember { mutableStateOf<String?>(null) }
+    var noteDialogFor by remember { mutableStateOf<String?>(null) }
 
     val block = remember(allSets, exercise) { blockOf(allSets, exercise) }
     val members = block.members
@@ -513,7 +516,15 @@ fun SessionExerciseScreen(
                 },
             )
         },
-        bottomBar = { RestTimerBar() },
+        bottomBar = {
+            Column {
+                // Pinned under the list rather than added to the end of it:
+                // at the moment it appears the sets are what is on screen, and
+                // a card pushed in below them would crowd them out.
+                if (finished) NextBar(remaining = remaining, onOpen = onOpenExercise, onBack = onBack)
+                RestTimerBar()
+            }
+        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (superset) {
@@ -552,6 +563,19 @@ fun SessionExerciseScreen(
                             )
                         }
                     }
+                    // What you did last time, while it is still any use: once
+                    // every set here is ticked there is nothing left to copy
+                    // it onto, and it would only be in the way.
+                    val memberDone = ids.isNotEmpty() && ids.all { byId[it]?.completed == true }
+                    val last = memberDetails.previous
+                    if (last != null && !memberDone) {
+                        item(key = "last:$member") {
+                            LastTimeRow(
+                                previous = last,
+                                onCopy = { viewModel.copyLastSession(member) },
+                            )
+                        }
+                    }
                     items(ids, key = { it }) { id ->
                         ReorderableItem(reorderState, key = id) { dragging ->
                             val set = byId[id]
@@ -575,47 +599,56 @@ fun SessionExerciseScreen(
                         }
                     }
                     item(key = "add:$member") {
-                        OutlinedButton(
-                            onClick = { viewModel.addSet(member) },
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text(if (superset) "Add set of $member" else "Add set")
+                            OutlinedButton(
+                                onClick = { viewModel.addSet(member) },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    if (superset) "Add set of $member" else "Add set",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            // A button rather than a standing text field: most
+                            // exercises never get a note, and an empty box
+                            // under every one of them is the clutter.
+                            TextButton(onClick = { noteDialogFor = member }) {
+                                Icon(Icons.Outlined.EditNote, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Note")
+                            }
                         }
                     }
-                    item(key = "note:$member") {
-                        // The session's own notes are on the session screen;
-                        // this is for the exercise, and comes back with it
-                        // next time in the "last time" card.
-                        DraftTextField(
-                            value = memberDetails.note,
-                            onValueChange = { viewModel.setNote(member, it) },
-                            label = if (superset) "Notes on $member" else "Notes on this exercise",
-                            singleLine = false,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    memberDetails.previous?.let { last ->
-                        item(key = "last:$member") {
-                            LastTimeCard(
-                                previous = last,
-                                onCopy = { viewModel.copyLastSession(member) },
+                    if (memberDetails.note.isNotBlank()) {
+                        item(key = "note:$member") {
+                            NoteRow(
+                                note = memberDetails.note,
+                                onEdit = { noteDialogFor = member },
                             )
                         }
                     }
                 }
-                if (finished) {
-                    item(key = "finished") {
-                        FinishedCard(
-                            remaining = remaining,
-                            onOpen = onOpenExercise,
-                            onBack = onBack,
-                        )
-                    }
-                }
             }
         }
+    }
+
+    noteDialogFor?.let { target ->
+        NoteDialog(
+            exercise = target,
+            initial = details[target]?.note.orEmpty(),
+            onDismiss = { noteDialogFor = null },
+            onSave = { text ->
+                viewModel.setNote(target, text)
+                noteDialogFor = null
+            },
+        )
     }
 
     restDialogFor?.let { target ->
@@ -914,98 +947,155 @@ private fun BestBanner(best: PersonalBest) {
 }
 
 /**
- * What you did last time, and a one-tap way to start from it. Copying replaces
- * the sets you have not ticked yet and leaves the ticked ones alone, so it is
- * safe to press mid-exercise.
+ * What you did last time, and a one-tap way to start from it, in a couple of
+ * lines above the sets rather than a card of its own. Copying replaces the
+ * sets you have not ticked yet and leaves the ticked ones alone, so it is safe
+ * mid-exercise.
  */
 @Composable
-private fun LastTimeCard(previous: PreviousSession, onCopy: () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
+private fun LastTimeRow(previous: PreviousSession, onCopy: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
             Text(
                 "Last time · ${formatDay(previous.date)}",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(4.dp))
             Text(
                 describeSets(previous.sets),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             previous.note?.let { note ->
-                Spacer(Modifier.height(4.dp))
                 Text(
-                    "Note: $note",
-                    style = MaterialTheme.typography.bodyMedium,
+                    note,
+                    style = MaterialTheme.typography.bodySmall,
                     fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = onCopy) {
-                Icon(Icons.Outlined.ContentCopy, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Copy these sets")
-            }
+        }
+        TextButton(onClick = onCopy) {
+            Icon(
+                Icons.Outlined.ContentCopy,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text("Copy")
         }
     }
 }
 
-/**
- * Once every set here is ticked off: the obvious next exercise as the big
- * button, and behind a second one a menu of everything still left -- the
- * obvious one included, in case you change your mind -- for when it is not the
- * one you are going to do: a machine is taken, or you would rather.
- */
-@OptIn(ExperimentalLayoutApi::class)
+/** This session's note on an exercise, as text; tapping it edits it. */
 @Composable
-private fun FinishedCard(remaining: List<Block>, onOpen: (String) -> Unit, onBack: () -> Unit) {
-    Card(
+private fun NoteRow(note: String, onEdit: () -> Unit) {
+    Text(
+        note,
+        style = MaterialTheme.typography.bodyMedium,
+        fontStyle = FontStyle.Italic,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onEdit)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun NoteDialog(
+    exercise: String,
+    initial: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Note on $exercise") },
+        text = {
+            Column {
+                Text(
+                    "Shown next time, under \"Last time\". The session's own " +
+                        "notes are on the session screen.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("Seat height, how it felt, what to try next…") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(text) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Once every set here is ticked off, one line pinned above the rest timer:
+ * the obvious next exercise as the big button, and beside it a menu of
+ * everything still left -- the obvious one included, in case you change your
+ * mind -- for when it is not the one you are going to do.
+ */
+@Composable
+private fun NextBar(remaining: List<Block>, onOpen: (String) -> Unit, onBack: () -> Unit) {
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-        ),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Text("All sets done", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             val next = remaining.firstOrNull()
             if (next == null) {
                 Text(
-                    "That's everything in this session.",
+                    "All sets done. That's the session.",
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.height(12.dp))
                 Button(onClick = onBack) { Text("Back to session") }
             } else {
-                Text("Next exercise: ${next.label}", style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(12.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                Button(
+                    onClick = { onOpen(next.members.first()) },
+                    modifier = Modifier.weight(1f),
                 ) {
-                    Button(onClick = { onOpen(next.members.first()) }) { Text("Go to ${next.label}") }
-                    // With only one left, the menu would offer the same thing
-                    // as the button beside it.
-                    if (remaining.size > 1) {
-                        var menuOpen by remember { mutableStateOf(false) }
-                        Box {
-                            OutlinedButton(onClick = { menuOpen = true }) {
-                                Text("Other exercise")
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                            }
-                            DropdownMenu(
-                                expanded = menuOpen,
-                                onDismissRequest = { menuOpen = false },
-                            ) {
-                                remaining.forEach { block ->
-                                    DropdownMenuItem(
-                                        text = { Text(block.label) },
-                                        onClick = {
-                                            menuOpen = false
-                                            onOpen(block.members.first())
-                                        },
-                                    )
-                                }
+                    Text(
+                        "Next exercise: ${next.label}",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                // With only one left, the menu would offer the same thing as
+                // the button beside it.
+                if (remaining.size > 1) {
+                    var menuOpen by remember { mutableStateOf(false) }
+                    Box {
+                        OutlinedButton(onClick = { menuOpen = true }) {
+                            Text("Other")
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            remaining.forEach { block ->
+                                DropdownMenuItem(
+                                    text = { Text(block.label) },
+                                    onClick = {
+                                        menuOpen = false
+                                        onOpen(block.members.first())
+                                    },
+                                )
                             }
                         }
                     }

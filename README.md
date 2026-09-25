@@ -12,14 +12,14 @@ automatic background sync to a private folder in your Google Drive.
   sets. Tick each set off as you do it, add or remove sets, and edit the
   numbers in place. Adding a set repeats the last one for that exercise, so
   planning 5×5 is four taps after the first. The session list shows how far
-  through each exercise you are, and finishing one offers the next — plus an
-  "Other exercise" menu of everything still unfinished, for when a machine is
-  taken. Skipping one and
+  through each exercise you are, and finishing one brings up a bar along the
+  bottom offering the next — plus an "Other" menu of everything still
+  unfinished, for when a machine is taken. Skipping one and
   coming back to it later works: once you finish the exercise after it, the
   skipped one is what comes up next rather than "the session is over".
-- **Exercise notes** — each exercise in a session has a notes field of its own,
-  under its sets, alongside the notes for the session as a whole: the seat
-  height, how the last set felt, what to try next time. The next time you train
+- **Exercise notes** — each exercise in a session can carry a note of its own,
+  from the Note button beside Add set, alongside the notes for the session as a
+  whole: the seat height, how the last set felt, what to try next time. The next time you train
   the exercise, the "last time" card shows what you wrote, and its history lists
   each session's note with its sets. Notes sync like everything else.
 - **Reordering** — drag an exercise or a set by its ⋮ handle to move it, or use
@@ -47,9 +47,10 @@ automatic background sync to a private folder in your Google Drive.
   copies the whole thing — exercises, order, reps, weights, durations,
   distances — as a plan with nothing ticked off, and takes that session's name
   unless you have already typed one. Offered only while the session is empty.
-- **Copy last time** — inside an exercise, what you did in its last session,
-  and one tap to start from it. Copying replaces the sets you have not ticked
-  yet and leaves the ticked ones alone, so it is safe mid-exercise.
+- **Copy last time** — inside an exercise, a line above the sets says what you
+  did in its last session, with a Copy button to start from it. Copying
+  replaces the sets you have not ticked yet and leaves the ticked ones alone, so
+  it is safe mid-exercise. The line goes away once the exercise is done.
 - **Built-in exercise library** — 110 common exercises across 13 muscle
   groups, cardio included, searchable and filterable. Anything missing can be
   added as a custom exercise with its own muscle group and metric; custom
